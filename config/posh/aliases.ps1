@@ -8,13 +8,14 @@ function nuke-alias($name) {
     }
 }
 
-# these aliases only cause problems
+# these aliases only cause problems or collide with other things
 nuke-alias curl
 nuke-alias wget
 nuke-alias diff
 nuke-alias rm
 nuke-alias set
 nuke-alias sort
+nuke-alias r
 
 # always use the installed sort
 set-alias sort (resolve-path ~\scoop\apps\git\current\usr\bin\sort.exe)
@@ -24,6 +25,7 @@ set-alias more less
 
 set-alias g git
 set-alias m micro
+set-alias lg lazygit
 
 set-alias unity Run-UnityForProject
 
@@ -42,6 +44,7 @@ function ~ { cd ~ }
 # https://stackoverflow.com/a/1663623/14582
 
 function free {gdr -psp 'FileSystem'}
+function dotf {code (resolve-path ~/dotfiles/dotfiles.code-workspace)}
 
 # this resets conemu to start printing ansi colors again (https://conemu.github.io/en/AnsiEscapeCodes.html#Example_3_scroll_console_to_bottom)
 nuke-alias cls
@@ -52,6 +55,10 @@ function cls {
     else {
         clear-host
     }
+}
+
+if ((which powerping)) {
+    set-alias ping powerping
 }
 
 function theme {

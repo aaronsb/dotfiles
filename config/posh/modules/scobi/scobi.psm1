@@ -1,3 +1,6 @@
+set-strictmode -version latest
+$ErrorActionPreference = 'stop'
+
 $buildsEditorRoot = 'C:\builds\editor'
 
 function Get-UnityVersionFromProjectVersion($projectPath, [switch]$getHash) {
@@ -71,16 +74,37 @@ function Get-UnityBuildConfig($exePath) {
         return 'debug'
     }
 
-    throw 'Unexpected size for Unity exe, need to revise bounds'
+    throw "Unexpected size of $exePath, need to revise bounds"
+}
+
+function Get-MonoBuildConfig($dllPath) {
+    # same as unity, no info in VERSIONINFO i can use
+
+    $filesize = (dir $dllPath).length
+
+    if ($filesize -gt 4MB -and $filesize -lt 6MB) {
+        return 'release'
+    }
+    elseif ($filesize -gt 9MB -and $filesize -lt 11MB) {
+        return 'debug'
+    }
+
+    throw "Unexpected size for $dllPath, need to revise bounds"
 }
 
 function Get-UnityForProject($projectPath, [switch]$skipCustomBuild, [switch]$forceCustomBuild) {
     $version, $hash = Get-UnityVersionFromProjectVersion -getHash $projectPath
     $exePath = "$buildsEditorRoot\$version\unity.exe"
 
-    $exeVersion, $exeHash = Get-UnityVersionFromExe -getHash $exePath
-    if ($exeVersion -ne $version) {
-        throw "Unity at $exePath has version $exeVersion, but was expecting $version"
+    $exeVersion, $exeHash = $null, $null
+    if (test-path $exePath) {
+        $exeVersion, $exeHash = Get-UnityVersionFromExe -getHash $exePath
+        if ($exeVersion -ne $version) {
+            throw "Unity at $exePath has version $exeVersion, but was expecting $version"
+        }
+    }
+    else {
+        $exePath = $null
     }
 
     if ($forceCustomBuild -and $skipCustomBuild) {
@@ -88,14 +112,17 @@ function Get-UnityForProject($projectPath, [switch]$skipCustomBuild, [switch]$fo
     }
 
     $forcingCustomHash = $false
+    $foundCustomBuilds = @()
     if ($forceCustomBuild -or (!$skipCustomBuild -and $exeHash -ne $hash)) {
-        foreach ($base in 'D:\work\unity', 'D:\work\unity2') {
-            $customExe = join-path $base 'build\WindowsEditor\Unity.exe'
+        foreach ($base in 'D:\work\unity\build\WindowsEditor', 'D:\work\unity2\build\WindowsEditor', "$projectPath\..\Unity\Editor") {
+            $customExe = join-path $base 'Unity.exe'
             if (test-path $customExe) {
+                $customExe = resolve-path $customExe
                 $customVersion, $customHash = Get-UnityVersionFromExe -getHash $customExe
+                $foundCustomBuilds += $customVersion
                 if ($customVersion -eq $version) {
                     if ($customHash -eq $hash) {
-                        write-warning "Substituting custom build found with matching version/hash $customVersion/$customHash ($customExe)"
+                        write-warning "Substituting custom build found matching $customVersion/$customHash ($customExe)"
                         $exePath = $customExe
                         $exeHash = $customHash
                         break
@@ -112,19 +139,38 @@ function Get-UnityForProject($projectPath, [switch]$skipCustomBuild, [switch]$fo
         }
     }
 
-    if (!$forcingCustomHash -and ($exeHash -ne $hash)) {
+    if (!$exePath) {
+        if ($skipCustomBuild) {
+            throw "Cannot find standard build for version $version"
+        }
+        elseif ($foundCustomBuilds) {
+            throw "Cannot find either standard or custom build for version $version (found custom builds: $foundCustomBuilds)"
+        }
+        else {
+            throw "Cannot find either standard or custom build for version $version"
+        }
+    }
+
+    if (!$forcingCustomHash -and $exePath -and ($exeHash -ne $hash)) {
         write-warning "Found matching $exeVersion at $exePath, but unable to find exact hash $hash installed or in custom builds"
     }
 
     $buildConfig = get-unitybuildconfig $exePath
     if ($buildConfig -ne 'release') {
-        write-warning "Running non-release build ($buildConfig) of Unity"
+        write-warning "Unity: running non-release build ($buildConfig) of $(split-path -leaf $exePath)"
+    }
+
+    $monoPath = join-path (split-path $exePath) 'Data/MonoBleedingEdge/EmbedRuntime/mono-2.0-bdwgc.dll'
+    $buildConfig = get-monobuildconfig $monoPath
+    if ($buildConfig -ne 'release') {
+        write-warning "Mono: running non-release build ($buildConfig) of $(split-path -leaf $monoPath)"
     }
 
     $exePath
 }
 
-function Run-UnityForProject($projectPath = $null, [switch]$skipCustomBuild, [switch]$forceCustomBuild, [switch]$useGlobalLogPath, [switch]$whatif) {
+function Run-UnityForProject($projectPath = $null, [switch]$skipCustomBuild, [switch]$forceCustomBuild, [switch]$useGlobalLogPath, [switch]$upmlogs, [switch]$whatif) {
+
     if ($null -eq $projectPath)
     {
         $paths = dir -r -filter:ProjectSettings | % parent
@@ -154,6 +200,11 @@ function Run-UnityForProject($projectPath = $null, [switch]$skipCustomBuild, [sw
         $extra += '-logFile', $logFilename
     }
 
+    if ($upmlogs) {
+        write-warning "Turning on extra debug logging for UPM (%LOCALAPPDATA%\Unity\Editor\upm.log)"
+        $extra += '-enablePackageManagerTraces'
+    }
+
     # TODO: check to see if a unity already running for that path. either activate if identical to the one we want (and command line we want)
     # or abort if different with warnings.
 
@@ -162,12 +213,15 @@ function Run-UnityForProject($projectPath = $null, [switch]$skipCustomBuild, [sw
     }
     else {
         $oldMixed = $Env:UNITY_MIXED_CALLSTACK
+        $oldExtLog = $Env:UNITY_EXT_LOGGING
         try {
             $Env:UNITY_MIXED_CALLSTACK = 1
+            $Env:UNITY_EXT_LOGGING = 1
             & (Get-UnityForProject $projectPath -skipCustomBuild:$skipCustomBuild -forceCustomBuild:$forceCustomBuild) -projectPath $projectPath $extra
         }
         finally {
             $Env:UNITY_MIXED_CALLSTACK = $oldMixed
+            $Env:UNITY_EXT_LOGGING = $oldExtLog
         }
     }
 }
@@ -199,6 +253,47 @@ function Scobi-Do {
 }
 #>
 
+#$path = '$env:APPDATA\UnityHub\logs\info-log.json'
+
+function Tail-Json($path, $timestampField = 'timestamp', [switch]$skipToEnd) {
+
+    $lastRead = 0
+    if ($skipToEnd) {
+        $lastRead = (dir $path -ea:continue).Length
+    }
+
+    for (;;) {
+        for (;;) {
+            try {
+                $len = (dir $path -ea:stop).Length
+                if ($len -ne $lastRead) {
+                    sleep -seconds 1
+                    if ((dir $path -ea:stop).Length -eq $len) {
+                        break;
+                    }
+                }
+            }
+            catch { $lastRead = 0 }
+            sleep -seconds 1
+        }
+
+        try {
+            $file = new io.filestream($path, 'open', 'read', 'readwrite,delete')
+            $file.seek($lastRead, 'begin') >$null
+            $reader = new io.streamreader($file)
+            for (;;) {
+                $json = $reader.readline()
+                $lastRead = $file.position
+                if (!$json) { break }
+                $json | convertfrom-json | %{ "$([datetime]($_.$timestampField)) $($_.message)" }
+            }
+        }
+        finally {
+            $file.dispose()
+        }
+    }
+}
+
 Export-ModuleMember Get-UnityVersionFromProjectVersion
 Export-ModuleMember Get-UnityVersionFromExe
 Export-ModuleMember Get-UnityForProject
@@ -209,3 +304,5 @@ Export-ModuleMember Install-UnityForProject
 
 #Export-ModuleMember Open-UnityProject
 #Export-ModuleMember Scobi-Do
+
+Export-ModuleMember Tail-Json

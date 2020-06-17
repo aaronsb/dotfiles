@@ -252,3 +252,18 @@ function Get-PSParentProcesses {
         }
     }
 }
+
+function P4-Kill-BOMs($path = '...') {
+    $files = @(p4n files $path)
+    $files += @(p4n opened $path)
+    $files |
+        ?{ $_.type -eq 'text' -and $_.action -ne 'delete' } |
+        %{ (p4n where $_.depotFile).path } |
+        %{
+            $bytes = [io.file]::ReadAllBytes($_)
+            if (!(compare $bytes[0..2] 0xEF,0xBB,0xBF)) {
+                p4 edit $_
+                [io.file]::WriteAllBytes($_, $bytes[3..$bytes.length])
+            }
+        }
+}
