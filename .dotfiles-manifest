@@ -1,0 +1,6 @@
+# Dotfiles Manifest
+# Format: app_name|source_path|target_path|enabled
+tmux|tmux/.tmux.conf|.tmux.conf|true
+zsh|zsh/.zshrc|.zshrc|true
+nvim|nvim|.config/nvim|true
+zsh-config|zsh-config/.zsh|.zsh|true

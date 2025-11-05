@@ -1,0 +1,21 @@
+# Dotfiles gitignore
+
+# Backup directories
+.dotfiles-backup/
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Editor directories
+.vscode/
+.idea/
+
+# Local overrides (if we add this feature later)
+*.local
+
+# Log files
+*.log

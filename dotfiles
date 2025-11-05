@@ -1,0 +1,509 @@
+#!/bin/bash
+
+# Dotfiles Management Script
+# A comprehensive tool for managing dotfiles with symlinks
+
+set -euo pipefail
+
+# Configuration
+# Resolve symlinks to get real path
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+DOTFILES_DIR="$(dirname "$SCRIPT_PATH")"
+MANIFEST_FILE="$DOTFILES_DIR/.dotfiles-manifest"
+BACKUP_DIR="$HOME/.dotfiles-backup"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Logging functions
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Initialize manifest if it doesn't exist
+init_manifest() {
+    if [[ ! -f "$MANIFEST_FILE" ]]; then
+        cat > "$MANIFEST_FILE" << EOF
+# Dotfiles Manifest
+# Format: app_name|source_path|target_path|enabled
+tmux|tmux/.tmux.conf|.tmux.conf|true
+zsh|zsh/.zshrc|.zshrc|true
+vim|vim/.vimrc|.vimrc|true
+EOF
+        log_info "Created manifest file at $MANIFEST_FILE"
+    fi
+}
+
+# Read manifest and return active entries
+read_manifest() {
+    grep -v '^#' "$MANIFEST_FILE" 2>/dev/null || true
+}
+
+# Check if a dotfile is deployed (symlinked)
+is_deployed() {
+    local target="$HOME/$1"
+    [[ -L "$target" && "$(readlink "$target")" == "$DOTFILES_DIR/$2" ]]
+}
+
+# Status command - show state of all dotfiles
+cmd_status() {
+    init_manifest
+    
+    echo -e "${CYAN}=== Dotfiles Status ===${NC}"
+    echo
+    
+    local has_issues=false
+    
+    while IFS='|' read -r app source target enabled; do
+        [[ -z "$app" ]] && continue
+        
+        local source_path="$DOTFILES_DIR/$source"
+        local target_path="$HOME/$target"
+        local status=""
+        local color=""
+        
+        if [[ "$enabled" == "false" ]]; then
+            status="DISABLED"
+            color="$YELLOW"
+        elif [[ ! -f "$source_path" && ! -d "$source_path" ]]; then
+            status="SOURCE MISSING"
+            color="$RED"
+            has_issues=true
+        elif is_deployed "$target" "$source"; then
+            status="DEPLOYED"
+            color="$GREEN"
+        elif [[ -e "$target_path" ]]; then
+            if [[ -L "$target_path" ]]; then
+                status="WRONG SYMLINK"
+            else
+                status="EXISTS (not managed)"
+            fi
+            color="$YELLOW"
+            has_issues=true
+        else
+            status="NOT DEPLOYED"
+            color="$PURPLE"
+            has_issues=true
+        fi
+        
+        printf "%-10s %-30s %b%s%b\n" "$app" "$target" "$color" "$status" "$NC"
+    done < <(read_manifest)
+    
+    echo
+    if $has_issues; then
+        log_warning "Some dotfiles need attention. Run 'dotfiles deploy' to fix."
+    else
+        log_success "All enabled dotfiles are properly deployed!"
+    fi
+}
+
+# Deploy command - create symlinks for all enabled dotfiles
+cmd_deploy() {
+    local dry_run=false
+    local force=false
+    
+    # Parse options
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --dry-run|-n)
+                dry_run=true
+                shift
+                ;;
+            --force|-f)
+                force=true
+                shift
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+    
+    init_manifest
+    
+    if $dry_run; then
+        log_info "DRY RUN MODE - No changes will be made"
+    fi
+    
+    echo -e "${CYAN}=== Deploying Dotfiles ===${NC}"
+    echo
+    
+    # Create backup directory
+    if ! $dry_run; then
+        mkdir -p "$BACKUP_DIR"
+    fi
+    
+    while IFS='|' read -r app source target enabled; do
+        [[ -z "$app" || "$enabled" == "false" ]] && continue
+        
+        local source_path="$DOTFILES_DIR/$source"
+        local target_path="$HOME/$target"
+        
+        # Skip if source doesn't exist
+        if [[ ! -f "$source_path" && ! -d "$source_path" ]]; then
+            log_error "$app: Source file or directory missing at $source"
+            continue
+        fi
+        
+        # Check if already properly deployed
+        if is_deployed "$target" "$source"; then
+            log_info "$app: Already deployed"
+            continue
+        fi
+        
+        # Handle existing files
+        if [[ -e "$target_path" || -L "$target_path" ]]; then
+            if ! $force; then
+                log_warning "$app: Target exists at ~/$target (use --force to override)"
+                continue
+            fi
+            
+            # Backup existing file
+            if ! $dry_run; then
+                local backup_path="$BACKUP_DIR/${target}.$(date +%Y%m%d_%H%M%S)"
+                mv "$target_path" "$backup_path"
+                log_info "$app: Backed up existing file to $backup_path"
+            else
+                log_info "$app: Would backup existing file"
+            fi
+        fi
+        
+        # Create parent directory if needed
+        local target_dir="$(dirname "$target_path")"
+        if [[ ! -d "$target_dir" ]]; then
+            if ! $dry_run; then
+                mkdir -p "$target_dir"
+            else
+                log_info "$app: Would create directory $target_dir"
+            fi
+        fi
+        
+        # Create symlink
+        if ! $dry_run; then
+            ln -s "$source_path" "$target_path"
+            log_success "$app: Deployed to ~/$target"
+        else
+            log_info "$app: Would deploy to ~/$target"
+        fi
+    done < <(read_manifest)
+}
+
+# Capture command - copy current system configs to repo
+cmd_capture() {
+    local app_filter="$1"
+    local dry_run=false
+    
+    # Parse options
+    if [[ "${2:-}" == "--dry-run" ]] || [[ "${2:-}" == "-n" ]]; then
+        dry_run=true
+    fi
+    
+    init_manifest
+    
+    echo -e "${CYAN}=== Capturing Dotfiles ===${NC}"
+    echo
+    
+    while IFS='|' read -r app source target enabled; do
+        [[ -z "$app" ]] && continue
+        
+        # Filter by app if specified
+        if [[ -n "$app_filter" && "$app" != "$app_filter" ]]; then
+            continue
+        fi
+        
+        local source_path="$DOTFILES_DIR/$source"
+        local target_path="$HOME/$target"
+        
+        # Skip if system file doesn't exist
+        if [[ ! -f "$target_path" ]]; then
+            log_warning "$app: No file found at ~/$target"
+            continue
+        fi
+        
+        # Skip if it's already a proper symlink
+        if is_deployed "$target" "$source"; then
+            log_info "$app: Already managed via symlink"
+            continue
+        fi
+        
+        # Create source directory if needed
+        local source_dir="$(dirname "$source_path")"
+        if [[ ! -d "$source_dir" ]]; then
+            if ! $dry_run; then
+                mkdir -p "$source_dir"
+            else
+                log_info "$app: Would create directory $source_dir"
+            fi
+        fi
+        
+        # Copy file to repo
+        if ! $dry_run; then
+            cp "$target_path" "$source_path"
+            log_success "$app: Captured from ~/$target"
+        else
+            log_info "$app: Would capture from ~/$target"
+        fi
+    done < <(read_manifest)
+}
+
+# Enable/disable specific dotfiles
+cmd_enable() {
+    local app="$1"
+    [[ -z "$app" ]] && { log_error "Please specify an app to enable"; exit 1; }
+    
+    init_manifest
+    
+    # Update manifest
+    local temp_file=$(mktemp)
+    local found=false
+    
+    while IFS='|' read -r m_app source target enabled; do
+        if [[ "$m_app" == "$app" ]]; then
+            echo "$m_app|$source|$target|true"
+            found=true
+            log_success "Enabled $app"
+        else
+            echo "$m_app|$source|$target|$enabled"
+        fi
+    done < <(read_manifest) > "$temp_file"
+    
+    if ! $found; then
+        log_error "App '$app' not found in manifest"
+        rm "$temp_file"
+        exit 1
+    fi
+    
+    mv "$temp_file" "$MANIFEST_FILE"
+}
+
+cmd_disable() {
+    local app="$1"
+    [[ -z "$app" ]] && { log_error "Please specify an app to disable"; exit 1; }
+    
+    init_manifest
+    
+    # Update manifest
+    local temp_file=$(mktemp)
+    local found=false
+    
+    while IFS='|' read -r m_app source target enabled; do
+        if [[ "$m_app" == "$app" ]]; then
+            echo "$m_app|$source|$target|false"
+            found=true
+            
+            # Remove symlink if it exists
+            local target_path="$HOME/$target"
+            if is_deployed "$target" "$source"; then
+                rm "$target_path"
+                log_success "Disabled and removed symlink for $app"
+            else
+                log_success "Disabled $app"
+            fi
+        else
+            echo "$m_app|$source|$target|$enabled"
+        fi
+    done < <(read_manifest) > "$temp_file"
+    
+    if ! $found; then
+        log_error "App '$app' not found in manifest"
+        rm "$temp_file"
+        exit 1
+    fi
+    
+    mv "$temp_file" "$MANIFEST_FILE"
+}
+
+# Diff command - compare repo version with system version
+cmd_diff() {
+    local app_filter="$1"
+    
+    init_manifest
+    
+    echo -e "${CYAN}=== Dotfiles Differences ===${NC}"
+    echo
+    
+    while IFS='|' read -r app source target enabled; do
+        [[ -z "$app" ]] && continue
+        
+        # Filter by app if specified
+        if [[ -n "$app_filter" && "$app" != "$app_filter" ]]; then
+            continue
+        fi
+        
+        local source_path="$DOTFILES_DIR/$source"
+        local target_path="$HOME/$target"
+        
+        # Skip if either file doesn't exist
+        if [[ ! -f "$source_path" && ! -d "$source_path" ]]; then
+            log_warning "$app: Source file or directory missing"
+            continue
+        fi
+        
+        if [[ ! -f "$target_path" && ! -d "$target_path" ]]; then
+            log_warning "$app: System file or directory missing"
+            continue
+        fi
+        
+        # Skip if it's a symlink to our repo
+        if is_deployed "$target" "$source"; then
+            log_info "$app: Deployed (no differences)"
+            continue
+        fi
+        
+        # Show diff
+        echo -e "${PURPLE}--- $app: ~/$target vs repo ---${NC}"
+        if diff -u "$target_path" "$source_path"; then
+            echo "Files are identical"
+        fi
+        echo
+    done < <(read_manifest)
+}
+
+# Add new dotfile to management
+cmd_add() {
+    local app="$1"
+    local system_path="$2"
+    local repo_path="${3:-$app/$(basename "$system_path")}"
+    
+    [[ -z "$app" || -z "$system_path" ]] && {
+        log_error "Usage: dotfiles add <app> <system-path> [repo-path]"
+        exit 1
+    }
+    
+    init_manifest
+    
+    # Normalize paths
+    system_path="${system_path#$HOME/}"
+    system_path="${system_path#~/}"
+    
+    # Check if already exists
+    if grep -q "^$app|" "$MANIFEST_FILE"; then
+        log_error "App '$app' already exists in manifest"
+        exit 1
+    fi
+    
+    # Add to manifest
+    echo "$app|$repo_path|$system_path|true" >> "$MANIFEST_FILE"
+    log_success "Added $app to manifest"
+    
+    # Offer to capture
+    echo
+    read -p "Capture existing file now? [y/N] " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        cmd_capture "$app"
+    fi
+}
+
+# List managed dotfiles
+cmd_list() {
+    init_manifest
+    
+    echo -e "${CYAN}=== Managed Dotfiles ===${NC}"
+    echo
+    printf "%-10s %-30s %-30s %-8s\n" "APP" "SYSTEM PATH" "REPO PATH" "ENABLED"
+    printf "%-10s %-30s %-30s %-8s\n" "---" "-----------" "---------" "-------"
+    
+    while IFS='|' read -r app source target enabled; do
+        [[ -z "$app" || "$app" =~ ^# ]] && continue
+        printf "%-10s %-30s %-30s %-8s\n" "$app" "~/$target" "$source" "$enabled"
+    done < <(cat "$MANIFEST_FILE")
+}
+
+# Help command
+cmd_help() {
+    cat << EOF
+${CYAN}Dotfiles Management Tool${NC}
+
+${YELLOW}Usage:${NC}
+    dotfiles <command> [options]
+
+${YELLOW}Commands:${NC}
+    ${GREEN}status${NC}              Show deployment status of all dotfiles
+    ${GREEN}deploy${NC} [--dry-run] [--force]
+                        Deploy dotfiles by creating symlinks
+    ${GREEN}capture${NC} [app] [--dry-run]
+                        Copy system configs to repo
+    ${GREEN}enable${NC} <app>       Enable a specific dotfile
+    ${GREEN}disable${NC} <app>      Disable and remove symlink for a dotfile
+    ${GREEN}diff${NC} [app]         Show differences between repo and system
+    ${GREEN}add${NC} <app> <path>   Add new dotfile to management
+    ${GREEN}list${NC}               List all managed dotfiles
+    ${GREEN}help${NC}               Show this help message
+
+${YELLOW}Examples:${NC}
+    dotfiles status                    # Check status of all dotfiles
+    dotfiles deploy --dry-run          # Preview deployment
+    dotfiles deploy --force            # Deploy all, backup conflicts
+    dotfiles capture tmux              # Capture only tmux config
+    dotfiles diff                      # Show all differences
+    dotfiles add nvim .config/nvim     # Add neovim to management
+
+${YELLOW}Manifest:${NC}
+    Dotfiles are tracked in: $MANIFEST_FILE
+    Backups are stored in: $BACKUP_DIR
+EOF
+}
+
+# Main command dispatcher
+main() {
+    local cmd="${1:-help}"
+    shift || true
+    
+    case "$cmd" in
+        status)
+            cmd_status "$@"
+            ;;
+        deploy)
+            cmd_deploy "$@"
+            ;;
+        capture)
+            cmd_capture "$@"
+            ;;
+        enable)
+            cmd_enable "$@"
+            ;;
+        disable)
+            cmd_disable "$@"
+            ;;
+        diff)
+            cmd_diff "$@"
+            ;;
+        add)
+            cmd_add "$@"
+            ;;
+        list)
+            cmd_list "$@"
+            ;;
+        help|--help|-h)
+            cmd_help
+            ;;
+        *)
+            log_error "Unknown command: $cmd"
+            echo
+            cmd_help
+            exit 1
+            ;;
+    esac
+}
+
+# Run main function
+main "$@"
