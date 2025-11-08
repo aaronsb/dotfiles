@@ -43,10 +43,11 @@ init_manifest() {
     if [[ ! -f "$MANIFEST_FILE" ]]; then
         cat > "$MANIFEST_FILE" << EOF
 # Dotfiles Manifest
-# Format: app_name|source_path|target_path|enabled
-tmux|tmux/.tmux.conf|.tmux.conf|true
-zsh|zsh/.zshrc|.zshrc|true
-vim|vim/.vimrc|.vimrc|true
+# Format: app_name|source_path|target_path|enabled|deploy_type
+# deploy_type: symlink (default) or copy (for directories that need full copy, like git repos)
+tmux|tmux/.tmux.conf|.tmux.conf|true|symlink
+zsh|zsh/.zshrc|.zshrc|true|symlink
+vim|vim/.vimrc|.vimrc|true|symlink
 EOF
         log_info "Created manifest file at $MANIFEST_FILE"
     fi
@@ -72,14 +73,17 @@ cmd_status() {
     
     local has_issues=false
     
-    while IFS='|' read -r app source target enabled; do
+    while IFS='|' read -r app source target enabled deploy_type; do
         [[ -z "$app" ]] && continue
-        
+
+        # Default to symlink for backward compatibility
+        deploy_type="${deploy_type:-symlink}"
+
         local source_path="$DOTFILES_DIR/$source"
         local target_path="$HOME/$target"
         local status=""
         local color=""
-        
+
         if [[ "$enabled" == "false" ]]; then
             status="DISABLED"
             color="$YELLOW"
@@ -87,8 +91,16 @@ cmd_status() {
             status="SOURCE MISSING"
             color="$RED"
             has_issues=true
-        elif is_deployed "$target" "$source"; then
+        elif [[ "$deploy_type" == "symlink" ]] && is_deployed "$target" "$source"; then
             status="DEPLOYED"
+            color="$GREEN"
+        elif [[ "$deploy_type" == "copy" && -d "$target_path" && -d "$source_path" ]]; then
+            # For copy mode, check if directory exists
+            if [[ -d "$target_path/.git" ]]; then
+                status="DEPLOYED (git)"
+            else
+                status="DEPLOYED (copy)"
+            fi
             color="$GREEN"
         elif [[ -e "$target_path" ]]; then
             if [[ -L "$target_path" ]]; then
@@ -103,7 +115,7 @@ cmd_status() {
             color="$PURPLE"
             has_issues=true
         fi
-        
+
         printf "%-10s %-30s %b%s%b\n" "$app" "$target" "$color" "$status" "$NC"
     done < <(read_manifest)
     
@@ -151,41 +163,55 @@ cmd_deploy() {
         mkdir -p "$BACKUP_DIR"
     fi
     
-    while IFS='|' read -r app source target enabled; do
+    while IFS='|' read -r app source target enabled deploy_type; do
         [[ -z "$app" || "$enabled" == "false" ]] && continue
-        
+
+        # Default to symlink for backward compatibility
+        deploy_type="${deploy_type:-symlink}"
+
         local source_path="$DOTFILES_DIR/$source"
         local target_path="$HOME/$target"
-        
+
         # Skip if source doesn't exist
         if [[ ! -f "$source_path" && ! -d "$source_path" ]]; then
             log_error "$app: Source file or directory missing at $source"
             continue
         fi
-        
-        # Check if already properly deployed
-        if is_deployed "$target" "$source"; then
+
+        # Check if already properly deployed (for symlink mode)
+        if [[ "$deploy_type" == "symlink" ]] && is_deployed "$target" "$source"; then
             log_info "$app: Already deployed"
             continue
         fi
-        
+
+        # For copy mode, check if target is a git repo that needs updating
+        if [[ "$deploy_type" == "copy" && -d "$target_path/.git" && -d "$source_path/.git" ]]; then
+            if ! $dry_run; then
+                log_info "$app: Updating git repository..."
+                (cd "$target_path" && git pull) || log_warning "$app: Git pull failed, will re-deploy"
+            else
+                log_info "$app: Would update git repository"
+            fi
+            continue
+        fi
+
         # Handle existing files
         if [[ -e "$target_path" || -L "$target_path" ]]; then
             if ! $force; then
                 log_warning "$app: Target exists at ~/$target (use --force to override)"
                 continue
             fi
-            
-            # Backup existing file
+
+            # Backup existing file/directory
             if ! $dry_run; then
-                local backup_path="$BACKUP_DIR/${target}.$(date +%Y%m%d_%H%M%S)"
+                local backup_path="$BACKUP_DIR/$(basename "$target").$(date +%Y%m%d_%H%M%S)"
                 mv "$target_path" "$backup_path"
-                log_info "$app: Backed up existing file to $backup_path"
+                log_info "$app: Backed up existing to $backup_path"
             else
-                log_info "$app: Would backup existing file"
+                log_info "$app: Would backup existing"
             fi
         fi
-        
+
         # Create parent directory if needed
         local target_dir="$(dirname "$target_path")"
         if [[ ! -d "$target_dir" ]]; then
@@ -195,13 +221,32 @@ cmd_deploy() {
                 log_info "$app: Would create directory $target_dir"
             fi
         fi
-        
-        # Create symlink
-        if ! $dry_run; then
-            ln -s "$source_path" "$target_path"
-            log_success "$app: Deployed to ~/$target"
+
+        # Deploy based on type
+        if [[ "$deploy_type" == "copy" ]]; then
+            # Copy mode - recursively copy directory
+            if ! $dry_run; then
+                cp -r "$source_path" "$target_path"
+
+                # Set permissions for git repo scripts
+                if [[ -d "$target_path/.git" ]]; then
+                    find "$target_path" -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
+                    [[ -d "$target_path/hooks" ]] && find "$target_path/hooks" -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
+                    [[ -d "$target_path/scripts" ]] && find "$target_path/scripts" -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
+                fi
+
+                log_success "$app: Copied to ~/$target"
+            else
+                log_info "$app: Would copy to ~/$target"
+            fi
         else
-            log_info "$app: Would deploy to ~/$target"
+            # Symlink mode (default)
+            if ! $dry_run; then
+                ln -s "$source_path" "$target_path"
+                log_success "$app: Deployed to ~/$target"
+            else
+                log_info "$app: Would deploy to ~/$target"
+            fi
         fi
     done < <(read_manifest)
 }
@@ -221,29 +266,38 @@ cmd_capture() {
     echo -e "${CYAN}=== Capturing Dotfiles ===${NC}"
     echo
     
-    while IFS='|' read -r app source target enabled; do
+    while IFS='|' read -r app source target enabled deploy_type; do
         [[ -z "$app" ]] && continue
-        
+
+        # Default to symlink for backward compatibility
+        deploy_type="${deploy_type:-symlink}"
+
         # Filter by app if specified
         if [[ -n "$app_filter" && "$app" != "$app_filter" ]]; then
             continue
         fi
-        
+
         local source_path="$DOTFILES_DIR/$source"
         local target_path="$HOME/$target"
-        
+
+        # Skip copy mode entries (they're managed differently)
+        if [[ "$deploy_type" == "copy" ]]; then
+            log_info "$app: Copy mode entries should be updated via git (skipping)"
+            continue
+        fi
+
         # Skip if system file doesn't exist
         if [[ ! -f "$target_path" ]]; then
             log_warning "$app: No file found at ~/$target"
             continue
         fi
-        
+
         # Skip if it's already a proper symlink
         if is_deployed "$target" "$source"; then
             log_info "$app: Already managed via symlink"
             continue
         fi
-        
+
         # Create source directory if needed
         local source_dir="$(dirname "$source_path")"
         if [[ ! -d "$source_dir" ]]; then
@@ -253,7 +307,7 @@ cmd_capture() {
                 log_info "$app: Would create directory $source_dir"
             fi
         fi
-        
+
         # Copy file to repo
         if ! $dry_run; then
             cp "$target_path" "$source_path"
@@ -274,14 +328,17 @@ cmd_enable() {
     # Update manifest
     local temp_file=$(mktemp)
     local found=false
-    
-    while IFS='|' read -r m_app source target enabled; do
+
+    while IFS='|' read -r m_app source target enabled deploy_type; do
+        # Default to symlink for backward compatibility
+        deploy_type="${deploy_type:-symlink}"
+
         if [[ "$m_app" == "$app" ]]; then
-            echo "$m_app|$source|$target|true"
+            echo "$m_app|$source|$target|true|$deploy_type"
             found=true
             log_success "Enabled $app"
         else
-            echo "$m_app|$source|$target|$enabled"
+            echo "$m_app|$source|$target|$enabled|$deploy_type"
         fi
     done < <(read_manifest) > "$temp_file"
     
@@ -303,12 +360,15 @@ cmd_disable() {
     # Update manifest
     local temp_file=$(mktemp)
     local found=false
-    
-    while IFS='|' read -r m_app source target enabled; do
+
+    while IFS='|' read -r m_app source target enabled deploy_type; do
+        # Default to symlink for backward compatibility
+        deploy_type="${deploy_type:-symlink}"
+
         if [[ "$m_app" == "$app" ]]; then
-            echo "$m_app|$source|$target|false"
+            echo "$m_app|$source|$target|false|$deploy_type"
             found=true
-            
+
             # Remove symlink if it exists
             local target_path="$HOME/$target"
             if is_deployed "$target" "$source"; then
@@ -318,7 +378,7 @@ cmd_disable() {
                 log_success "Disabled $app"
             fi
         else
-            echo "$m_app|$source|$target|$enabled"
+            echo "$m_app|$source|$target|$enabled|$deploy_type"
         fi
     done < <(read_manifest) > "$temp_file"
     
@@ -340,34 +400,43 @@ cmd_diff() {
     echo -e "${CYAN}=== Dotfiles Differences ===${NC}"
     echo
     
-    while IFS='|' read -r app source target enabled; do
+    while IFS='|' read -r app source target enabled deploy_type; do
         [[ -z "$app" ]] && continue
-        
+
+        # Default to symlink for backward compatibility
+        deploy_type="${deploy_type:-symlink}"
+
         # Filter by app if specified
         if [[ -n "$app_filter" && "$app" != "$app_filter" ]]; then
             continue
         fi
-        
+
         local source_path="$DOTFILES_DIR/$source"
         local target_path="$HOME/$target"
-        
+
+        # Skip copy mode git repos
+        if [[ "$deploy_type" == "copy" && -d "$source_path/.git" ]]; then
+            log_info "$app: Use 'git status' in $target_path to check for changes"
+            continue
+        fi
+
         # Skip if either file doesn't exist
         if [[ ! -f "$source_path" && ! -d "$source_path" ]]; then
             log_warning "$app: Source file or directory missing"
             continue
         fi
-        
+
         if [[ ! -f "$target_path" && ! -d "$target_path" ]]; then
             log_warning "$app: System file or directory missing"
             continue
         fi
-        
+
         # Skip if it's a symlink to our repo
         if is_deployed "$target" "$source"; then
             log_info "$app: Deployed (no differences)"
             continue
         fi
-        
+
         # Show diff
         echo -e "${PURPLE}--- $app: ~/$target vs repo ---${NC}"
         if diff -u "$target_path" "$source_path"; then
@@ -382,34 +451,38 @@ cmd_add() {
     local app="$1"
     local system_path="$2"
     local repo_path="${3:-$app/$(basename "$system_path")}"
-    
+    local deploy_type="${4:-symlink}"
+
     [[ -z "$app" || -z "$system_path" ]] && {
-        log_error "Usage: dotfiles add <app> <system-path> [repo-path]"
+        log_error "Usage: dotfiles add <app> <system-path> [repo-path] [deploy-type]"
+        log_error "  deploy-type: symlink (default) or copy"
         exit 1
     }
-    
+
     init_manifest
-    
+
     # Normalize paths
     system_path="${system_path#$HOME/}"
     system_path="${system_path#~/}"
-    
+
     # Check if already exists
     if grep -q "^$app|" "$MANIFEST_FILE"; then
         log_error "App '$app' already exists in manifest"
         exit 1
     fi
-    
+
     # Add to manifest
-    echo "$app|$repo_path|$system_path|true" >> "$MANIFEST_FILE"
-    log_success "Added $app to manifest"
-    
-    # Offer to capture
-    echo
-    read -p "Capture existing file now? [y/N] " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        cmd_capture "$app"
+    echo "$app|$repo_path|$system_path|true|$deploy_type" >> "$MANIFEST_FILE"
+    log_success "Added $app to manifest (deploy type: $deploy_type)"
+
+    # Offer to capture (only for symlink mode)
+    if [[ "$deploy_type" == "symlink" ]]; then
+        echo
+        read -p "Capture existing file now? [y/N] " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            cmd_capture "$app"
+        fi
     fi
 }
 
@@ -419,12 +492,14 @@ cmd_list() {
     
     echo -e "${CYAN}=== Managed Dotfiles ===${NC}"
     echo
-    printf "%-10s %-30s %-30s %-8s\n" "APP" "SYSTEM PATH" "REPO PATH" "ENABLED"
-    printf "%-10s %-30s %-30s %-8s\n" "---" "-----------" "---------" "-------"
-    
-    while IFS='|' read -r app source target enabled; do
+    printf "%-10s %-25s %-25s %-8s %-10s\n" "APP" "SYSTEM PATH" "REPO PATH" "ENABLED" "TYPE"
+    printf "%-10s %-25s %-25s %-8s %-10s\n" "---" "-----------" "---------" "-------" "----"
+
+    while IFS='|' read -r app source target enabled deploy_type; do
         [[ -z "$app" || "$app" =~ ^# ]] && continue
-        printf "%-10s %-30s %-30s %-8s\n" "$app" "~/$target" "$source" "$enabled"
+        # Default to symlink for backward compatibility
+        deploy_type="${deploy_type:-symlink}"
+        printf "%-10s %-25s %-25s %-8s %-10s\n" "$app" "~/$target" "$source" "$enabled" "$deploy_type"
     done < <(cat "$MANIFEST_FILE")
 }
 
@@ -456,6 +531,7 @@ ${YELLOW}Examples:${NC}
     dotfiles capture tmux              # Capture only tmux config
     dotfiles diff                      # Show all differences
     dotfiles add nvim .config/nvim     # Add neovim to management
+    dotfiles add claude ~/.claude claude copy  # Add directory with copy mode
 
 ${YELLOW}Manifest:${NC}
     Dotfiles are tracked in: $MANIFEST_FILE

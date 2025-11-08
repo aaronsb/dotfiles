@@ -15,6 +15,7 @@ This is a dotfiles repository for managing configuration files across machines. 
 - `tmux/` - Tmux terminal multiplexer configuration
 - `zsh/` - Z shell configuration
 - `vim/` - Vim editor configuration (when added)
+- `claude/` - Claude Code configuration (https://github.com/aaronsb/claude-code-config)
 
 ## Dotfiles Management Commands
 
@@ -67,22 +68,58 @@ When adding a new tool's configuration:
 
 1. Use `dotfiles add` command:
    ```bash
+   # For simple files (symlink mode - default)
    dotfiles add nvim .config/nvim
+
+   # For directories that need full copy (like git repos)
+   dotfiles add claude .claude claude copy
    ```
 
 2. This will:
    - Add entry to manifest
-   - Prompt to capture existing config
+   - Prompt to capture existing config (symlink mode only)
    - Create appropriate directory structure
 
 3. Commit with clear message:
    ```
    nvim: Add Neovim configuration with LSP support
-   
+
    - Includes language servers for Python, JS, and Go
    - Sets up telescope for fuzzy finding
    - Configures gruvbox colorscheme
    ```
+
+## Deployment Modes
+
+The dotfiles system supports two deployment modes:
+
+### Symlink Mode (Default)
+- Creates symbolic links from `~/.config` to the dotfiles repo
+- Changes in either location are immediately reflected
+- Best for: individual config files, most dotfiles
+
+### Copy Mode
+- Recursively copies entire directories to `~/.config`
+- Preserves `.git` directories for git repositories
+- Automatically updates via `git pull` if target is a git repo
+- Sets executable permissions on shell scripts
+- Best for: git repositories, complex directory structures
+
+**Example: Claude Code Configuration**
+
+The Claude Code config uses copy mode because:
+1. It's a git repository that needs `.git` preserved
+2. Claude Code expects files in `~/.claude`, not symlinks
+3. Updates are managed via `git pull` within the deployed directory
+
+To update Claude Code config:
+```bash
+cd ~/.claude
+git pull  # Pull latest changes from upstream
+
+# Or let dotfiles handle it:
+dotfiles deploy  # Automatically runs git pull for git repos
+```
 
 ## Testing Changes
 

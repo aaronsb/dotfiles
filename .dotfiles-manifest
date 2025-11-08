@@ -1,6 +1,8 @@
 # Dotfiles Manifest
-# Format: app_name|source_path|target_path|enabled
-tmux|tmux/.tmux.conf|.tmux.conf|true
-zsh|zsh/.zshrc|.zshrc|true
-nvim|nvim|.config/nvim|true
-zsh-config|zsh/.zsh|.zsh|true
+# Format: app_name|source_path|target_path|enabled|deploy_type
+# deploy_type: symlink (default) or copy (for directories that need full copy, like git repos)
+tmux|tmux/.tmux.conf|.tmux.conf|true|symlink
+zsh|zsh/.zshrc|.zshrc|true|symlink
+nvim|nvim|.config/nvim|true|symlink
+zsh-config|zsh/.zsh|.zsh|true|symlink
+claude|claude|.claude|true|copy
