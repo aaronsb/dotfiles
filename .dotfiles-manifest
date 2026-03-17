@@ -3,4 +3,4 @@
 tmux|tmux/.tmux.conf|.tmux.conf|true
 zsh|zsh/.zshrc|.zshrc|true
 nvim|nvim|.config/nvim|true
-zsh-config|zsh-config/.zsh|.zsh|true
+zsh-config|zsh/.zsh|.zsh|true

@@ -1,58 +1,16 @@
 #!/usr/bin/env zsh
-# SSH Agent configuration with fixed socket
+# SSH agent via keychain
 
-# Check if .ssh directory exists
-if [[ ! -d "$HOME/.ssh" ]]; then
-  echo "No .ssh directory found. SSH agent not started."
-  return
+[[ ! -d "$HOME/.ssh" ]] && return
+
+# Which keys to load — override in ~/.zshrc.local via SSH_KEYS_TO_LOAD array
+# Default: load id_ed25519 and/or id_rsa if they exist
+if [[ -z "${SSH_KEYS_TO_LOAD[*]}" ]]; then
+  SSH_KEYS_TO_LOAD=()
+  [[ -f "$HOME/.ssh/id_ed25519" ]] && SSH_KEYS_TO_LOAD+=("$HOME/.ssh/id_ed25519")
+  [[ -f "$HOME/.ssh/id_rsa" ]]     && SSH_KEYS_TO_LOAD+=("$HOME/.ssh/id_rsa")
 fi
 
-# Define socket path
-SSH_AGENT_SOCK=~/.ssh/ssh-agent.sock
-
-# Function to start ssh-agent
-start_agent() {
-  # Remove old socket if it exists
-  rm -f "$SSH_AGENT_SOCK"
-  
-  # Start agent with specified socket path
-  ssh-agent -a "$SSH_AGENT_SOCK" > ~/.ssh/agent.env
-  
-  # Load environment variables
-  source ~/.ssh/agent.env > /dev/null
-  
-  echo "Started new SSH agent with PID $SSH_AGENT_PID"
-}
-
-# Check if socket exists
-if [[ -S "$SSH_AGENT_SOCK" ]]; then
-  # Socket exists, check if it's functional
-  export SSH_AUTH_SOCK="$SSH_AGENT_SOCK"
-  ssh-add -l &>/dev/null
-  
-  if [[ $? -eq 2 ]]; then
-    # Socket exists but agent is not running
-    echo "Socket exists but agent is not responding. Starting new agent..."
-    start_agent
-  else
-    # Get agent PID
-    SSH_AGENT_PID=$(pgrep -u "$USER" ssh-agent)
-    export SSH_AGENT_PID
-    echo "Using existing SSH agent with PID $SSH_AGENT_PID"
-  fi
-else
-  # Socket doesn't exist, start new agent
-  echo "No SSH agent socket found. Starting new agent..."
-  start_agent
-fi
-
-# Optional: load keys automatically
-# Uncomment the following lines to automatically load specific keys
-if ssh-add -l &>/dev/null; then
-  # Agent has keys, no need to add
-  echo "SSH agent already has keys loaded"
-else
-  # Add your keys here - uncomment and modify as needed
-  echo "Loading SSH keys..."
-  ssh-add ~/.ssh/aaron_priv 2>/dev/null
+if command -v keychain &>/dev/null && [[ ${#SSH_KEYS_TO_LOAD[@]} -gt 0 ]]; then
+  eval $(keychain --eval --quiet --agents ssh "${SSH_KEYS_TO_LOAD[@]}")
 fi

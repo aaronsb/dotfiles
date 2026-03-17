@@ -1,19 +1,14 @@
 #!/usr/bin/env zsh
 
 function lsd_with_hint() {
-    # Run the original lsd command
     /usr/bin/lsd "$@"
-
-    # Check for image files in the directory
-    if ls -1 "$@" | grep -E '\.(jpg|jpeg|png|gif|bmp|tiff|webp|svg)$' >/dev/null 2>&1; then
+    if /usr/bin/lsd -1 "$@" 2>/dev/null | grep -qE '\.(jpg|jpeg|png|gif|bmp|tiff|webp|svg)$'; then
         echo "Hint: 'lsix' to see image thumbnails"
     fi
 }
 
 alias -g ls="lsd_with_hint"
-#alias -g ls="/usr/bin/lsd"
 alias -g cat="bat"
 alias -g man="batman"
 alias -g pretty="prettybat"
 alias -g ip="ip -c"
-alias -g whisper="whisper-client"
