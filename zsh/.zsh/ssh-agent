@@ -12,5 +12,5 @@ if [[ -z "${SSH_KEYS_TO_LOAD[*]}" ]]; then
 fi
 
 if command -v keychain &>/dev/null && [[ ${#SSH_KEYS_TO_LOAD[@]} -gt 0 ]]; then
-  eval $(keychain --eval --quiet --agents ssh "${SSH_KEYS_TO_LOAD[@]}")
+  eval $(keychain --eval --quiet "${SSH_KEYS_TO_LOAD[@]}")
 fi
