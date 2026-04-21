@@ -19,11 +19,13 @@ This is a dotfiles repository for managing configuration files across machines. 
 
 - `dotfiles status` - Check deployment state
 - `dotfiles deploy [--dry-run] [--force]` - Deploy configs via symlinks
-- `dotfiles capture [app]` - Copy configs from system to repo
-- `dotfiles diff [app]` - Compare repo vs system versions
 - `dotfiles add <app> <path>` - Add new config to management
 - `dotfiles enable/disable <app>` - Toggle specific configs
 - `dotfiles list` - Show all managed configs
+
+Because managed configs deploy as symlinks, edits to the system file and
+the repo file are the same bytes. Use `git status` / `git diff` in this
+repo as the source of truth for "what changed".
 
 ## Git Commit Guidelines
 
@@ -46,11 +48,10 @@ zsh: Configure oh-my-posh with atomic theme
 - Shows execution time for long-running commands
 - Includes Python virtual env detection
 
-dotfiles: Add capture --dry-run mode for safety
+dotfiles: Add --dry-run mode to deploy for safety
 
-- Allows previewing which files would be captured
-- Prevents accidental overwrites in the repository
-- Matches deploy command's --dry-run pattern
+- Allows previewing which symlinks would be created
+- Prevents accidental overwrites in the home directory
 ```
 
 ### Bad Commit Examples:
@@ -75,8 +76,9 @@ When adding a new tool's configuration:
 
 2. This will:
    - Add entry to manifest
-   - Prompt to capture existing config (symlink mode only)
    - Create appropriate directory structure
+   (drop existing config files into the repo path yourself before
+   deploying — the tool no longer captures from the system)
 
 3. Commit with clear message:
    ```
@@ -109,7 +111,7 @@ Before committing configuration changes:
 
 1. Test the actual application with the new config
 2. Run `dotfiles status` to ensure proper deployment
-3. Use `dotfiles diff` to review changes
+3. Review changes with `git diff` in this repo
 4. Consider impacts on other systems/platforms
 
 ## Platform Considerations

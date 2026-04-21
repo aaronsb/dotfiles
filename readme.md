@@ -28,9 +28,12 @@ The bootstrap script will:
 
 ```bash
 dotfiles status     # What's deployed?
-dotfiles diff       # What changed?
-dotfiles capture    # Save changes back to repo
+dotfiles list       # What's managed?
 ```
+
+Since everything deploys as symlinks, editing either `~/.tmux.conf` or
+`~/.dotfiles/tmux/.tmux.conf` edits the same file — `git status` in
+`~/.dotfiles` is your source of truth for "what changed".
 
 ## 🛠️ All Commands
 
@@ -38,8 +41,6 @@ dotfiles capture    # Save changes back to repo
 |---------|-------------|---------|
 | `status` | Show what's deployed vs available | `dotfiles status` |
 | `deploy` | Create symlinks to activate configs | `dotfiles deploy --dry-run` |
-| `capture` | Copy current configs to repo | `dotfiles capture tmux` |
-| `diff` | Compare repo vs system | `dotfiles diff` |
 | `add` | Add new app to management | `dotfiles add nvim .config/nvim` |
 | `enable` | Enable a disabled config | `dotfiles enable vim` |
 | `disable` | Temporarily disable a config | `dotfiles disable tmux` |
@@ -56,12 +57,12 @@ dotfiles capture    # Save changes back to repo
 ├── CLAUDE.md          # AI assistant instructions
 ├── readme.md          # This file
 │
-├── tmux/             
+├── tmux/
 │   └── .tmux.conf    # → ~/.tmux.conf
 ├── zsh/
-│   └── .zshrc        # → ~/.zshrc
-└── vim/              
-    └── .vimrc        # → ~/.vimrc (when added)
+│   ├── .zshrc        # → ~/.zshrc
+│   └── .zsh/         # → ~/.zsh (conf.d fragments)
+└── nvim/             # → ~/.config/nvim
 ```
 
 ## 💡 Helpful Reminders
@@ -90,8 +91,8 @@ dotfiles add nvim .config/nvim
 
 # This will:
 # 1. Add to manifest
-# 2. Ask to capture existing config
-# 3. Create directory structure
+# 2. Create directory structure
+# (drop existing config files into nvim/ yourself before deploying)
 
 # Then commit:
 git add nvim/ .dotfiles-manifest
@@ -151,13 +152,13 @@ ls ~/.dotfiles-backup/
 
 ### Accidental changes
 ```bash
-# See what changed
-dotfiles diff
+# See what changed (configs are symlinks, so git in the repo tells you)
+cd ~/.dotfiles && git status && git diff
 
 # Restore from repo
-dotfiles deploy --force
+git checkout -- <file>
 
-# Or restore from backup
+# Or restore from a deploy backup
 cp ~/.dotfiles-backup/.tmux.conf.20240315_142035 ~/.tmux.conf
 ```
 
