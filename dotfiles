@@ -253,7 +253,7 @@ cmd_deploy() {
 
 # Capture command - copy current system configs to repo
 cmd_capture() {
-    local app_filter="$1"
+    local app_filter="${1:-}"
     local dry_run=false
     
     # Parse options
@@ -393,7 +393,7 @@ cmd_disable() {
 
 # Diff command - compare repo version with system version
 cmd_diff() {
-    local app_filter="$1"
+    local app_filter="${1:-}"
     
     init_manifest
     

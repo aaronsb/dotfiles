@@ -14,7 +14,6 @@ This is a dotfiles repository for managing configuration files across machines. 
 - `.dotfiles-manifest` - Tracks which dotfiles are managed
 - `tmux/` - Tmux terminal multiplexer configuration
 - `zsh/` - Z shell configuration
-- `vim/` - Vim editor configuration (when added)
 
 ## Dotfiles Management Commands
 
