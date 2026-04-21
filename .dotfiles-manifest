@@ -5,4 +5,3 @@ tmux|tmux/.tmux.conf|.tmux.conf|true|symlink
 zsh|zsh/.zshrc|.zshrc|true|symlink
 nvim|nvim|.config/nvim|true|symlink
 zsh-config|zsh/.zsh|.zsh|true|symlink
-claude|claude|.claude|true|copy
