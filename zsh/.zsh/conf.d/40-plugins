@@ -1,0 +1,14 @@
+#!/usr/bin/env zsh
+# Third-party plugins — load order matters (syntax-highlighting before history-substring-search)
+
+_plug=/usr/share/zsh/plugins
+[[ -r "$_plug/zsh-autosuggestions/zsh-autosuggestions.zsh" ]] \
+  && source "$_plug/zsh-autosuggestions/zsh-autosuggestions.zsh"
+[[ -r "$_plug/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]] \
+  && source "$_plug/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+[[ -r "$_plug/zsh-history-substring-search/zsh-history-substring-search.zsh" ]] \
+  && source "$_plug/zsh-history-substring-search/zsh-history-substring-search.zsh"
+unset _plug
+
+[[ -r /usr/share/doc/pkgfile/command-not-found.zsh ]] \
+  && source /usr/share/doc/pkgfile/command-not-found.zsh

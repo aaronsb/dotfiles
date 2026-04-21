@@ -1,0 +1,16 @@
+#!/usr/bin/env zsh
+# SSH agent via keychain.
+# Default: load id_ed25519 and/or id_rsa if present.
+# Override by setting SSH_KEYS_TO_LOAD in ~/.zshrc.local (read by 05-local-pre).
+
+if [[ -d "$HOME/.ssh" ]]; then
+  if [[ -z "${SSH_KEYS_TO_LOAD[*]}" ]]; then
+    SSH_KEYS_TO_LOAD=()
+    [[ -f "$HOME/.ssh/id_ed25519" ]] && SSH_KEYS_TO_LOAD+=("$HOME/.ssh/id_ed25519")
+    [[ -f "$HOME/.ssh/id_rsa" ]]     && SSH_KEYS_TO_LOAD+=("$HOME/.ssh/id_rsa")
+  fi
+
+  if command -v keychain &>/dev/null && (( ${#SSH_KEYS_TO_LOAD[@]} > 0 )); then
+    eval "$(keychain --eval --quiet "${SSH_KEYS_TO_LOAD[@]}")"
+  fi
+fi

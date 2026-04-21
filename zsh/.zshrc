@@ -1,30 +1,22 @@
-# Set oh-my-posh theme — override PATH_OF_THE_THEME in ~/.zshrc.local
-PATH_OF_THE_THEME="/usr/share/oh-my-posh/themes/kushal.omp.json"
+# ~/.zshrc — loader. All config lives in ~/.zsh/conf.d/ and runs in filename order.
+#
+#   00-path          PATH and Go/Rust/npm bin dirs (typeset -U dedupes)
+#   05-local-pre     sources ~/.zshrc.local (theme, SSH keys, machine extras)
+#   10-history       HISTFILE, HISTSIZE, HIST_* options
+#   20-options       general setopt flags and WORDCHARS
+#   30-completion    zstyles + compinit (once, with daily cache)
+#   40-plugins       zsh-autosuggestions, syntax-highlighting, history-substring-search
+#   50-keybindings   all bindkey lines
+#   60-prompt        oh-my-posh (falls back to prompt elite2)
+#   70-aliases       normal aliases (not alias -g) + lsd_with_hint
+#   80-ssh-agent     keychain for SSH keys
+#   90-tools         direnv, git color default
 
-# Load machine-local config early so it can override theme and key settings
-[[ -r "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
-
-## Core shell config: history, completion, keybindings, plugins, prompt
-[[ -r "$HOME/.zsh/easy-zsh-config" ]] && source "$HOME/.zsh/easy-zsh-config" "${PATH_OF_THE_THEME}"
-
-## Completion overrides
-[[ -r "$HOME/.zsh/completion" ]] && source "$HOME/.zsh/completion"
-
-## SSH agent
-[[ -r "$HOME/.zsh/ssh-agent" ]] && source "$HOME/.zsh/ssh-agent"
-
-## Aliases
-[[ -r "$HOME/.zsh/aliases" ]] && source "$HOME/.zsh/aliases"
-
-## PATH
-export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
-
-## Go
-export GOPATH="$HOME/go"
-export PATH="$GOPATH/bin:$PATH"
-
-## Misc
-git config --global color.ui auto
-
-## direnv
-command -v direnv &>/dev/null && eval "$(direnv hook zsh)"
+ZSH_CONFD="$HOME/.zsh/conf.d"
+if [[ -d "$ZSH_CONFD" ]]; then
+  for _f in "$ZSH_CONFD"/*(.N); do
+    [[ -r "$_f" ]] && source "$_f"
+  done
+  unset _f
+fi
+unset ZSH_CONFD

@@ -1,0 +1,13 @@
+#!/usr/bin/env zsh
+# Prompt: oh-my-posh with a fallback
+
+: "${PATH_OF_THE_THEME:=/usr/share/oh-my-posh/themes/kushal.omp.json}"
+
+if [[ -r "$PATH_OF_THE_THEME" ]] && command -v oh-my-posh &>/dev/null; then
+  export POSH_THEME="$PATH_OF_THE_THEME"
+  eval "$(oh-my-posh init zsh --config "$PATH_OF_THE_THEME")"
+else
+  autoload -U promptinit
+  promptinit
+  prompt elite2 green yellow
+fi

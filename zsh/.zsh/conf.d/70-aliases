@@ -1,0 +1,26 @@
+#!/usr/bin/env zsh
+# Aliases and small helper functions.
+# These are normal (not global) aliases — safer than alias -g, which expands
+# the word anywhere on the command line including inside pipelines and flags.
+
+# Core sanity
+alias cp='cp -i'
+alias df='df -h'
+alias free='free -h'
+
+# Modern replacements for core tools
+alias ls='lsd_with_hint'
+alias cat='bat'
+alias man='batman'
+alias pretty='prettybat'
+alias ip='ip -c'
+
+# Git convenience
+alias gitu='git add . && git commit && git push'
+
+lsd_with_hint() {
+  /usr/bin/lsd "$@"
+  if /usr/bin/lsd -1 "$@" 2>/dev/null | grep -qE '\.(jpe?g|png|gif|bmp|tiff|webp|svg)$'; then
+    echo "Hint: 'lsix' to see image thumbnails"
+  fi
+}
