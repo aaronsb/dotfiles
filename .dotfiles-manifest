@@ -5,3 +5,5 @@ tmux|tmux/.tmux.conf|.tmux.conf|true|symlink
 zsh|zsh/.zshrc|.zshrc|true|symlink
 nvim|nvim|.config/nvim|true|symlink
 zsh-config|zsh/.zsh|.zsh|true|symlink
+oh-my-posh-themes|oh-my-posh/themes|.config/oh-my-posh/themes|true|symlink
+posh-theme|oh-my-posh/posh-theme|.local/bin/posh-theme|true|symlink

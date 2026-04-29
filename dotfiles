@@ -13,13 +13,13 @@ MANIFEST_FILE="$DOTFILES_DIR/.dotfiles-manifest"
 BACKUP_DIR="$HOME/.dotfiles-backup"
 
 # Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[0;33m'
+BLUE=$'\033[0;34m'
+PURPLE=$'\033[0;35m'
+CYAN=$'\033[0;36m'
+NC=$'\033[0m' # No Color
 
 # Logging functions
 log_info() {
@@ -381,6 +381,185 @@ cmd_list() {
     done < <(cat "$MANIFEST_FILE")
 }
 
+# Verify the dotfiles dir is a git repo with an 'origin' remote.
+# Returns 0 if usable, 1 with a printed reason if not.
+require_git_remote() {
+    if ! git -C "$DOTFILES_DIR" rev-parse --git-dir &>/dev/null; then
+        log_error "$DOTFILES_DIR is not a git repository."
+        log_info "Initialize it with: git -C $DOTFILES_DIR init"
+        return 1
+    fi
+    if ! git -C "$DOTFILES_DIR" remote get-url origin &>/dev/null; then
+        log_error "No 'origin' remote configured in $DOTFILES_DIR."
+        log_info "Add one with: git -C $DOTFILES_DIR remote add origin <url>"
+        return 1
+    fi
+    return 0
+}
+
+# Diff command - show local state vs origin (preview before pull/push)
+cmd_diff() {
+    require_git_remote || exit 1
+
+    local branch
+    branch="$(git -C "$DOTFILES_DIR" rev-parse --abbrev-ref HEAD)"
+
+    log_info "Fetching from origin..."
+    git -C "$DOTFILES_DIR" fetch origin --quiet || { log_error "Fetch failed."; exit 1; }
+
+    local dirty
+    dirty="$(git -C "$DOTFILES_DIR" status --porcelain)"
+    if [[ -n "$dirty" ]]; then
+        echo "${YELLOW}Uncommitted changes:${NC}"
+        echo "$dirty" | sed 's/^/    /'
+        echo
+    fi
+
+    local upstream
+    upstream="$(git -C "$DOTFILES_DIR" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+    if [[ -z "$upstream" ]]; then
+        log_warning "No upstream tracking branch for '$branch'."
+        return 0
+    fi
+
+    local ahead behind
+    ahead="$(git -C "$DOTFILES_DIR" rev-list --count "$upstream..HEAD")"
+    behind="$(git -C "$DOTFILES_DIR" rev-list --count "HEAD..$upstream")"
+
+    if [[ "$ahead" -eq 0 && "$behind" -eq 0 && -z "$dirty" ]]; then
+        log_success "Branch '$branch' is in sync with $upstream."
+        return 0
+    fi
+
+    if [[ "$ahead" -gt 0 ]]; then
+        echo "${CYAN}Local is $ahead commit(s) ahead of $upstream (would push):${NC}"
+        git -C "$DOTFILES_DIR" log --oneline "$upstream..HEAD" | sed 's/^/    /'
+        git -C "$DOTFILES_DIR" diff --stat "$upstream..HEAD" | sed 's/^/    /'
+        echo
+    fi
+
+    if [[ "$behind" -gt 0 ]]; then
+        echo "${CYAN}Remote is $behind commit(s) ahead (would pull):${NC}"
+        git -C "$DOTFILES_DIR" log --oneline "HEAD..$upstream" | sed 's/^/    /'
+        git -C "$DOTFILES_DIR" diff --stat "HEAD..$upstream" | sed 's/^/    /'
+        echo
+    fi
+}
+
+# Pull command - fetch and fast-forward the dotfiles repo
+cmd_pull() {
+    require_git_remote || exit 1
+
+    local branch
+    branch="$(git -C "$DOTFILES_DIR" rev-parse --abbrev-ref HEAD)"
+    if [[ "$branch" == "HEAD" ]]; then
+        log_error "Detached HEAD — check out a branch first."
+        exit 1
+    fi
+
+    log_info "Fetching from origin..."
+    git -C "$DOTFILES_DIR" fetch origin --quiet || { log_error "Fetch failed."; exit 1; }
+
+    local upstream
+    upstream="$(git -C "$DOTFILES_DIR" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+    if [[ -z "$upstream" ]]; then
+        log_error "No upstream tracking branch for '$branch'."
+        log_info "Set one with: git -C $DOTFILES_DIR branch --set-upstream-to=origin/$branch"
+        exit 1
+    fi
+
+    local behind
+    behind="$(git -C "$DOTFILES_DIR" rev-list --count "HEAD..$upstream")"
+    if [[ "$behind" -eq 0 ]]; then
+        log_success "Already up to date with $upstream."
+        return 0
+    fi
+
+    local old_head
+    old_head="$(git -C "$DOTFILES_DIR" rev-parse HEAD)"
+
+    if ! git -C "$DOTFILES_DIR" pull --ff-only --quiet; then
+        log_error "Pull failed (likely diverged). Resolve manually."
+        exit 1
+    fi
+
+    log_success "Pulled $behind commit(s) from $upstream:"
+    git -C "$DOTFILES_DIR" log --oneline "$old_head..HEAD" | sed 's/^/    /'
+    echo
+    log_info "Files changed:"
+    git -C "$DOTFILES_DIR" diff --stat "$old_head..HEAD" | sed 's/^/    /'
+}
+
+# Push command - push committed work to origin
+cmd_push() {
+    require_git_remote || exit 1
+
+    local branch
+    branch="$(git -C "$DOTFILES_DIR" rev-parse --abbrev-ref HEAD)"
+    if [[ "$branch" == "HEAD" ]]; then
+        log_error "Detached HEAD — check out a branch first."
+        exit 1
+    fi
+
+    local dirty
+    dirty="$(git -C "$DOTFILES_DIR" status --porcelain)"
+    if [[ -n "$dirty" ]]; then
+        log_info "Uncommitted changes:"
+        echo "$dirty" | sed 's/^/    /'
+        echo
+        read -rp "Commit these? [y/N] " -n 1 reply; echo
+        if [[ $reply =~ ^[Yy]$ ]]; then
+            local message
+            read -rp "What changed? " message
+            if [[ -z "$message" ]]; then
+                log_error "Empty message — aborted."
+                exit 1
+            fi
+            git -C "$DOTFILES_DIR" add -A
+            git -C "$DOTFILES_DIR" commit -m "$message" || { log_error "Commit failed."; exit 1; }
+            log_success "Committed: $message"
+        else
+            log_warning "Skipping commit — uncommitted changes will NOT be pushed."
+        fi
+    fi
+
+    local upstream
+    upstream="$(git -C "$DOTFILES_DIR" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+
+    if [[ -z "$upstream" ]]; then
+        log_warning "No upstream tracking branch for '$branch'."
+        read -rp "Push and set upstream to origin/$branch? [y/N] " -n 1 reply; echo
+        [[ ! $reply =~ ^[Yy]$ ]] && { log_info "Aborted."; exit 0; }
+        if git -C "$DOTFILES_DIR" push -u origin "$branch"; then
+            log_success "Pushed and set upstream."
+        else
+            log_error "Push failed."
+            exit 1
+        fi
+        return 0
+    fi
+
+    local ahead
+    ahead="$(git -C "$DOTFILES_DIR" rev-list --count "$upstream..HEAD")"
+    if [[ "$ahead" -eq 0 ]]; then
+        log_success "Already up to date with $upstream."
+        return 0
+    fi
+
+    log_info "Branch '$branch' is $ahead commit(s) ahead of $upstream:"
+    git -C "$DOTFILES_DIR" log --oneline "$upstream..HEAD" | sed 's/^/    /'
+    echo
+    read -rp "Push these commits to $upstream? [y/N] " -n 1 reply; echo
+    [[ ! $reply =~ ^[Yy]$ ]] && { log_info "Aborted."; exit 0; }
+
+    if git -C "$DOTFILES_DIR" push; then
+        log_success "Pushed."
+    else
+        log_error "Push failed."
+        exit 1
+    fi
+}
+
 # Help command
 cmd_help() {
     cat << EOF
@@ -397,6 +576,9 @@ ${YELLOW}Commands:${NC}
     ${GREEN}disable${NC} <app>      Disable and remove symlink for a dotfile
     ${GREEN}add${NC} <app> <path>   Add new dotfile to management
     ${GREEN}list${NC}               List all managed dotfiles
+    ${GREEN}diff${NC}               Preview local state vs origin (uncommitted, ahead, behind)
+    ${GREEN}pull${NC}               Fast-forward pull from origin
+    ${GREEN}push${NC}               Commit (with prompt) and push to origin
     ${GREEN}help${NC}               Show this help message
 
 ${YELLOW}Examples:${NC}
@@ -434,6 +616,15 @@ main() {
             ;;
         list)
             cmd_list "$@"
+            ;;
+        diff)
+            cmd_diff "$@"
+            ;;
+        pull)
+            cmd_pull "$@"
+            ;;
+        push)
+            cmd_push "$@"
             ;;
         help|--help|-h)
             cmd_help

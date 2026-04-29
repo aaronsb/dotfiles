@@ -1,9 +1,29 @@
 #!/usr/bin/env zsh
 # Prompt: oh-my-posh with a fallback
+#
+# Theme resolution order:
+#   1. $PATH_OF_THE_THEME (explicit override, full path)
+#   2. ~/.config/oh-my-posh/active   (theme name, set by `posh-theme set`)
+#   3. kushal (default)
+# Resolved name is searched in ~/.config/oh-my-posh/themes/ then /usr/share/oh-my-posh/themes/.
 
-: "${PATH_OF_THE_THEME:=/usr/share/oh-my-posh/themes/kushal.omp.json}"
+if [[ -z "${PATH_OF_THE_THEME:-}" ]]; then
+  local _posh_name=""
+  [[ -r "$HOME/.config/oh-my-posh/active" ]] && _posh_name="$(<"$HOME/.config/oh-my-posh/active")"
+  : "${_posh_name:=kushal}"
 
-if [[ -r "$PATH_OF_THE_THEME" ]] && command -v oh-my-posh &>/dev/null; then
+  for _candidate in \
+    "$HOME/.config/oh-my-posh/themes/${_posh_name}.omp.json" \
+    "/usr/share/oh-my-posh/themes/${_posh_name}.omp.json"; do
+    if [[ -r "$_candidate" ]]; then
+      PATH_OF_THE_THEME="$_candidate"
+      break
+    fi
+  done
+  unset _posh_name _candidate
+fi
+
+if [[ -r "${PATH_OF_THE_THEME:-}" ]] && command -v oh-my-posh &>/dev/null; then
   export POSH_THEME="$PATH_OF_THE_THEME"
   eval "$(oh-my-posh init zsh --config "$PATH_OF_THE_THEME")"
 else
