@@ -612,41 +612,18 @@ cmd_push() {
     fi
 }
 
-# Help command
+# Help command - render HELP.md (with glow if available)
 cmd_help() {
-    cat << EOF
-${CYAN}Dotfiles Management Tool${NC}
-
-${YELLOW}Usage:${NC}
-    dotfiles <command> [options]
-
-${YELLOW}Commands:${NC}
-    ${GREEN}status${NC}              Show deployment status of all dotfiles
-    ${GREEN}deploy${NC} [--dry-run] [--force]
-                        Deploy dotfiles by creating symlinks
-    ${GREEN}enable${NC} <app>       Enable a specific dotfile
-    ${GREEN}disable${NC} <app>      Disable and remove symlink for a dotfile
-    ${GREEN}add${NC} <app> <path>   Add new dotfile to management
-    ${GREEN}list${NC}               List all managed dotfiles
-    ${GREEN}diff${NC} [--branch <b>] [--details]
-                        Preview local state vs origin (default branch: main).
-                        Use --details (-d) for full colored diffs.
-    ${GREEN}pull${NC} [--branch <b>]  Fast-forward pull from origin (default branch: main)
-    ${GREEN}push${NC} [--branch <b>] [--message <msg>]
-                        Commit and push to origin (default branch: main).
-                        Use --message (-m) to skip prompts and run in one shot.
-    ${GREEN}help${NC}               Show this help message
-
-${YELLOW}Examples:${NC}
-    dotfiles status                    # Check status of all dotfiles
-    dotfiles deploy --dry-run          # Preview deployment
-    dotfiles deploy --force            # Deploy all, backup conflicts
-    dotfiles add nvim .config/nvim     # Add neovim to management
-
-${YELLOW}Manifest:${NC}
-    Dotfiles are tracked in: $MANIFEST_FILE
-    Backups are stored in: $BACKUP_DIR
-EOF
+    local help_file="$DOTFILES_DIR/HELP.md"
+    if [[ ! -r "$help_file" ]]; then
+        log_error "HELP.md not found at $help_file"
+        return 1
+    fi
+    if command -v glow &>/dev/null && [[ -t 1 ]]; then
+        glow -p "$help_file"
+    else
+        cat "$help_file"
+    fi
 }
 
 # Main command dispatcher
