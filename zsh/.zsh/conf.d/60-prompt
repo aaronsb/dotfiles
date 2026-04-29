@@ -1,27 +1,26 @@
 #!/usr/bin/env zsh
-# Prompt: oh-my-posh with a fallback
+# Prompt: oh-my-posh with a fallback.
 #
-# Theme resolution order:
-#   1. $PATH_OF_THE_THEME (explicit override, full path)
-#   2. ~/.config/oh-my-posh/active   (theme name, set by `posh-theme set`)
-#   3. kushal (default)
-# Resolved name is searched in ~/.config/oh-my-posh/themes/ then /usr/share/oh-my-posh/themes/.
+# Theme resolution: ~/.config/oh-my-posh/active (set by `posh-theme set`)
+# names a theme; resolved against ~/.config/oh-my-posh/themes/ then
+# /usr/share/oh-my-posh/themes/. Defaults to kushal. The active file always
+# wins over a pre-existing $PATH_OF_THE_THEME (which Arch's /etc/zsh/zshrc
+# sets to atomic by default).
 
-if [[ -z "${PATH_OF_THE_THEME:-}" ]]; then
-  local _posh_name=""
-  [[ -r "$HOME/.config/oh-my-posh/active" ]] && _posh_name="$(<"$HOME/.config/oh-my-posh/active")"
-  : "${_posh_name:=kushal}"
+_posh_name=""
+[[ -r "$HOME/.config/oh-my-posh/active" ]] && _posh_name="$(<"$HOME/.config/oh-my-posh/active")"
+: "${_posh_name:=kushal}"
 
-  for _candidate in \
-    "$HOME/.config/oh-my-posh/themes/${_posh_name}.omp.json" \
-    "/usr/share/oh-my-posh/themes/${_posh_name}.omp.json"; do
-    if [[ -r "$_candidate" ]]; then
-      PATH_OF_THE_THEME="$_candidate"
-      break
-    fi
-  done
-  unset _posh_name _candidate
-fi
+PATH_OF_THE_THEME=""
+for _candidate in \
+  "$HOME/.config/oh-my-posh/themes/${_posh_name}.omp.json" \
+  "/usr/share/oh-my-posh/themes/${_posh_name}.omp.json"; do
+  if [[ -r "$_candidate" ]]; then
+    PATH_OF_THE_THEME="$_candidate"
+    break
+  fi
+done
+unset _posh_name _candidate
 
 if [[ -r "${PATH_OF_THE_THEME:-}" ]] && command -v oh-my-posh &>/dev/null; then
   export POSH_THEME="$PATH_OF_THE_THEME"
