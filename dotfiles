@@ -382,10 +382,11 @@ cmd_list() {
 }
 
 # Parse common flags from args.
-# Sets globals: TARGET_BRANCH (default "main"), DETAILS (default false).
+# Sets globals: TARGET_BRANCH (default "main"), DETAILS (default false), MESSAGE (default "").
 parse_flags() {
     TARGET_BRANCH="main"
     DETAILS=false
+    MESSAGE=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --branch|-b)
@@ -396,6 +397,12 @@ parse_flags() {
                 ;;
             --details|-d)
                 DETAILS=true
+                shift
+                ;;
+            --message|-m)
+                shift
+                MESSAGE="${1:-}"
+                [[ -z "$MESSAGE" ]] && { log_error "--message requires a value."; exit 1; }
                 shift
                 ;;
             *)
@@ -542,14 +549,23 @@ cmd_push() {
         log_info "Uncommitted changes:"
         echo "$dirty" | sed 's/^/    /'
         echo
-        read -rp "Commit these? [y/N] " -n 1 reply; echo
-        if [[ $reply =~ ^[Yy]$ ]]; then
-            local message
-            read -rp "What changed? " message
-            if [[ -z "$message" ]]; then
-                log_error "Empty message — aborted."
-                exit 1
+
+        local message="$MESSAGE" do_commit=false
+        if [[ -n "$message" ]]; then
+            do_commit=true
+        else
+            read -rp "Commit these? [y/N] " -n 1 reply; echo
+            if [[ $reply =~ ^[Yy]$ ]]; then
+                read -rp "What changed? " message
+                if [[ -z "$message" ]]; then
+                    log_error "Empty message — aborted."
+                    exit 1
+                fi
+                do_commit=true
             fi
+        fi
+
+        if $do_commit; then
             git -C "$DOTFILES_DIR" add -A
             git -C "$DOTFILES_DIR" commit -m "$message" || { log_error "Commit failed."; exit 1; }
             log_success "Committed: $message"
@@ -583,8 +599,10 @@ cmd_push() {
     log_info "Local '$target' is $ahead commit(s) ahead of $remote_ref:"
     git -C "$DOTFILES_DIR" log --oneline "$remote_ref..HEAD" | sed 's/^/    /'
     echo
-    read -rp "Push these commits to $remote_ref? [y/N] " -n 1 reply; echo
-    [[ ! $reply =~ ^[Yy]$ ]] && { log_info "Aborted."; exit 0; }
+    if [[ -z "$MESSAGE" ]]; then
+        read -rp "Push these commits to $remote_ref? [y/N] " -n 1 reply; echo
+        [[ ! $reply =~ ^[Yy]$ ]] && { log_info "Aborted."; exit 0; }
+    fi
 
     if git -C "$DOTFILES_DIR" push origin "$target"; then
         log_success "Pushed."
@@ -614,7 +632,9 @@ ${YELLOW}Commands:${NC}
                         Preview local state vs origin (default branch: main).
                         Use --details (-d) for full colored diffs.
     ${GREEN}pull${NC} [--branch <b>]  Fast-forward pull from origin (default branch: main)
-    ${GREEN}push${NC} [--branch <b>]  Commit (with prompt) and push to origin (default branch: main)
+    ${GREEN}push${NC} [--branch <b>] [--message <msg>]
+                        Commit and push to origin (default branch: main).
+                        Use --message (-m) to skip prompts and run in one shot.
     ${GREEN}help${NC}               Show this help message
 
 ${YELLOW}Examples:${NC}
