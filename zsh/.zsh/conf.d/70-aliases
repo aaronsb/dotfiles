@@ -18,6 +18,9 @@ alias ip='ip -c'
 # Git convenience
 alias gitu='git add . && git commit && git push'
 
+# Terminal multiplexer — 'zellij' is a forgettable name; 'mux' is muscle-memory
+alias mux='zellij'
+
 lsd_with_hint() {
   /usr/bin/lsd "$@"
   if /usr/bin/lsd -1 "$@" 2>/dev/null | grep -qE '\.(jpe?g|png|gif|bmp|tiff|webp|svg)$'; then
