@@ -60,6 +60,39 @@ Flip the manifest's enabled flag. Disabling also removes the live symlink.
 
 Tabular dump of every manifest entry.
 
+### `pkg <capture|status|sync> [--host <name>] [--prune]`
+
+Track explicitly-installed packages per host. A **distinct subsystem** from the
+symlink manifest above — it manages *system state*, not config files, and reads
+nothing from the manifest. Arch family only (pacman / AUR via yay|paru / flatpak).
+
+Lists live under `packages/<host>/` and are the **desired state**; a live query
+is the **actual state**. Sources absent on a host are skipped, never errored —
+`cube` with no flatpak just gets no `flatpak.txt`.
+
+```
+packages/<host>/
+  native.txt    # pacman -Qqen   (official repos)
+  aur.txt       # pacman -Qqem   (foreign / AUR / manual)
+  flatpak.txt   # flatpak apps
+```
+
+- **`capture`** — write this host's live package state to `packages/<host>/`.
+  Output is sorted, so re-capturing with no changes yields byte-identical files
+  (idempotent — no git churn). On a new host it creates that host's folder, which
+  flows to the repo on the next `push`.
+- **`status`** — show drift per source: tracked-but-missing (sync would install)
+  and installed-but-untracked (capture would record, `--prune` would remove). With
+  `--host <other>` it shows another host's tracked lists only (no live diff — that
+  only makes sense on the host itself).
+- **`sync`** — install tracked-but-missing packages. Refuses to run unless the
+  target host is the local machine (it mutates the live system). Add `--prune` to
+  *also remove* explicitly-installed packages not in the list — true convergence,
+  but it can uninstall things you forgot to track. Additive without `--prune`.
+
+Typical cross-host flow: on a new machine, `pull` → `pkg capture` → `push` to
+record it; or `pull` → `pkg sync` to install what's already tracked for it.
+
 ### `diff [--branch <b>] [--details]`
 
 Preview local state vs `origin/<branch>` (default `main`). Shows uncommitted
