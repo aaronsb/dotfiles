@@ -41,11 +41,12 @@ ${YELLOW}Commands:${NC}
     ${GREEN}disable${NC} <app>      Disable and remove symlink for a dotfile
     ${GREEN}add${NC} <app> <path>   Add new dotfile to management
     ${GREEN}list${NC}               List all managed dotfiles
-    ${GREEN}pkg${NC} <capture|status|sync> [--host <name>] [--prune]
+    ${GREEN}pkg${NC} <capture|status|sync|diff> [--host <name>] [--prune]
                         Track explicitly-installed packages per host
                         (pacman / AUR / flatpak). capture: record live state;
                         status: show drift; sync: install missing (--prune
-                        also removes untracked). Runs only on Arch-family hosts.
+                        also removes untracked); diff: compare hosts
+                        (no args = all hosts, or 'diff A B'). Arch-family.
     ${GREEN}diff${NC} [--branch <b>] [--details]
                         Preview local state vs origin (default branch: main).
                         Use --details (-d) for full colored diffs.

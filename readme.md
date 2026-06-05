@@ -80,6 +80,7 @@ Since everything deploys as symlinks, editing either `~/.tmux.conf` or
 | `pkg capture` | Record this host's explicit packages | `dotfiles pkg capture` |
 | `pkg status` | Show package drift (tracked vs installed) | `dotfiles pkg status` |
 | `pkg sync` | Install tracked-but-missing (`--prune` removes extras) | `dotfiles pkg sync` |
+| `pkg diff` | Compare package sets across hosts | `dotfiles pkg diff north slab` |
 
 Run `dotfiles help` for the full manual.
 
