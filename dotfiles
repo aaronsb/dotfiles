@@ -687,9 +687,17 @@ cmd_pkg_capture() {
             continue
         fi
         local file; file="$(pkg_file "$src" "$host")"
-        local count
-        pkg_live_list "$src" > "$file"
-        count="$(wc -l < "$file" | tr -d ' ')"
+        # Query into a var first: pacman -Qqem exits non-zero with no output
+        # when a host has zero AUR packages. Writing the redirect directly
+        # would truncate the file, then `set -e` would abort mid-capture.
+        local listing count=0
+        listing="$(pkg_live_list "$src")" || true
+        if [[ -n "$listing" ]]; then
+            printf '%s\n' "$listing" > "$file"
+            count="$(printf '%s\n' "$listing" | wc -l | tr -d ' ')"
+        else
+            : > "$file"   # source present but genuinely empty → empty list
+        fi
         log_success "$src: wrote $count package(s) → packages/$host/$src.txt"
         captured=true
     done
@@ -821,21 +829,29 @@ cmd_pkg_sync() {
 }
 
 # Install a newline-delimited package set for a source (additive).
+# Pass names as argv via `xargs -a <(...)` rather than piping into `-`:
+# piping consumes stdin, so pacman/yay can't reopen it for the [Y/n]
+# prompt ("failed to reopen stdin"). -a keeps the command's stdin on the
+# terminal so the confirmation still works.
 pkg_install() {
     local src="$1" pkgs="$2"
     case "$src" in
-        native)  echo "$pkgs" | sudo pacman -S --needed - ;;
-        aur)     echo "$pkgs" | "$(pkg_aur_helper)" -S --needed - ;;
-        flatpak) echo "$pkgs" | xargs -r flatpak install -y flathub ;;
+        native)  xargs -r -a <(printf '%s\n' "$pkgs") sudo pacman -S --needed ;;
+        aur)     xargs -r -a <(printf '%s\n' "$pkgs") "$(pkg_aur_helper)" -S --needed ;;
+        flatpak) xargs -r -a <(printf '%s\n' "$pkgs") flatpak install -y "${FLATPAK_REMOTE:-flathub}" ;;
     esac
 }
 
 # Remove a newline-delimited package set for a source.
+# Same -a rationale as pkg_install: `pacman -Rns` prompts for confirmation,
+# so its stdin must stay on the terminal, not the package-list pipe.
+# Note: -Rns also removes now-orphaned dependencies and config (.pacsave),
+# so the blast radius can exceed the listed packages — confirm at the prompt.
 pkg_remove() {
     local src="$1" pkgs="$2"
     case "$src" in
-        native|aur) echo "$pkgs" | xargs -r sudo pacman -Rns ;;
-        flatpak)    echo "$pkgs" | xargs -r flatpak uninstall -y ;;
+        native|aur) xargs -r -a <(printf '%s\n' "$pkgs") sudo pacman -Rns ;;
+        flatpak)    xargs -r -a <(printf '%s\n' "$pkgs") flatpak uninstall ;;
     esac
 }
 
@@ -847,7 +863,9 @@ cmd_pkg() {
     local rest=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --host) PKG_HOST_OVERRIDE="$2"; shift 2 ;;
+            --host)
+                [[ -z "${2:-}" ]] && { log_error "--host requires a hostname"; exit 1; }
+                PKG_HOST_OVERRIDE="$2"; shift 2 ;;
             *)      rest+=("$1"); shift ;;
         esac
     done

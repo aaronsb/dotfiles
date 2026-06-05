@@ -64,7 +64,9 @@ Tabular dump of every manifest entry.
 
 Track explicitly-installed packages per host. A **distinct subsystem** from the
 symlink manifest above — it manages *system state*, not config files, and reads
-nothing from the manifest. Arch family only (pacman / AUR via yay|paru / flatpak).
+nothing from the manifest. Targets the Arch family — native and AUR sources
+require `pacman` (+ `yay`/`paru`); the flatpak source works anywhere flatpak is
+installed but is only one of the three.
 
 Lists live under `packages/<host>/` and are the **desired state**; a live query
 is the **actual state**. Sources absent on a host are skipped, never errored —
@@ -89,6 +91,15 @@ packages/<host>/
   target host is the local machine (it mutates the live system). Add `--prune` to
   *also remove* explicitly-installed packages not in the list — true convergence,
   but it can uninstall things you forgot to track. Additive without `--prune`.
+
+  Install and removal pass package names as arguments (not piped), so pacman's
+  `[Y/n]` confirmation still works — nothing is force-applied silently. Note that
+  prune uses `pacman -Rns`, which **also removes now-orphaned dependencies and
+  saves configs as `.pacsave`** — its blast radius can exceed the listed
+  packages, so read the prompt before confirming.
+
+Flatpak installs default to the `flathub` remote; override with the
+`FLATPAK_REMOTE` environment variable.
 
 Typical cross-host flow: on a new machine, `pull` → `pkg capture` → `push` to
 record it; or `pull` → `pkg sync` to install what's already tracked for it.
