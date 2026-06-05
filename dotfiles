@@ -21,7 +21,7 @@ for _m in common configs git pkg lifecycle; do
     _f="$DOTFILES_LIB/$_m.sh"
     [[ -r "$_f" ]] || { echo "dotfiles: missing library: $_f" >&2; exit 1; }
     # shellcheck source=/dev/null
-    source "$_f"
+    source "$_f" || { echo "dotfiles: failed loading library: $_f" >&2; exit 1; }
 done
 unset _m _f
 
