@@ -312,30 +312,42 @@ pkg_diff_all() {
     echo
     local src
     for src in "${PKG_SOURCES[@]}"; do
-        local -a files=(); local h
-        for h in "${hosts[@]}"; do
-            [[ -f "$PACKAGES_DIR/$h/$src.txt" ]] && files+=("$PACKAGES_DIR/$h/$src.txt")
-        done
         echo -e "${YELLOW}$src${NC}"
-        if (( ${#files[@]} == 0 )); then
-            echo "  (no host tracks this source)"; echo; continue
-        fi
-        # A package present in N files is common to all; present in exactly 1 is
-        # unique. Capture output is sorted+unique per file, so a plain count works.
-        local nfiles=${#files[@]} counts common singletons
-        counts="$(cat "${files[@]}" | grep . | sort | uniq -c)"
-        common="$(awk -v t="$nfiles" '$1==t{print $2}' <<<"$counts" | grep -c . || true)"
-        singletons="$(awk '$1==1{print $2}' <<<"$counts" | sort)"
-        echo -e "  ${GREEN}● ${common}${NC} common to all $nfiles"
-        local i=0
+        # Only hosts with a NON-EMPTY file participate in this source's diff
+        # (-s = exists and non-empty). A host that tracks the source but has
+        # zero packages, or doesn't track it at all, is reported separately so
+        # "common to all N" stays honest about N.
+        local -a part=() absent=(); local h
         for h in "${hosts[@]}"; do
-            [[ -f "$PACKAGES_DIR/$h/$src.txt" ]] || continue
+            if [[ -s "$PACKAGES_DIR/$h/$src.txt" ]]; then part+=("$h"); else absent+=("$h"); fi
+        done
+        local np=${#part[@]}
+        if (( np == 0 )); then
+            echo "  (no host has any $src packages)"; echo; continue
+        fi
+        if (( np == 1 )); then
+            local only_n; only_n="$(grep -c . "$PACKAGES_DIR/${part[0]}/$src.txt" || true)"
+            echo -e "  only ${part[0]} has any $src packages ($only_n)"; echo; continue
+        fi
+        local -a files=(); for h in "${part[@]}"; do files+=("$PACKAGES_DIR/$h/$src.txt"); done
+        # A package in all N participating files is common; in exactly 1 is unique.
+        # Capture output is sorted+unique per file, so a plain count works.
+        local counts common singletons
+        counts="$(cat "${files[@]}" | grep . | sort | uniq -c || true)"
+        common="$(awk -v t="$np" '$1==t{print $2}' <<<"$counts" | grep -c . || true)"
+        singletons="$(awk '$1==1{print $2}' <<<"$counts" | sort)"
+        echo -e "  ${GREEN}● ${common}${NC} common to all $np"
+        (( ${#absent[@]} > 0 )) && echo -e "  ${BLUE}(no $src packages: ${absent[*]})${NC}"
+        local i=0
+        for h in "${part[@]}"; do
             local uq nuq col
             uq="$(comm -12 <(sort "$PACKAGES_DIR/$h/$src.txt" | grep .) <(printf '%s\n' "$singletons" | grep .) || true)"
             nuq="$(printf '%s' "$uq" | grep -c . || true)"
             col="$(pkg_host_color "$i")"
             printf "  ${col}◆ %-8s %s unique${NC}\n" "$h" "$nuq"
-            (( nuq > 0 )) && printf '%s\n' "$uq" | grep . | pkg_sample 14 | sed 's/^/        /'
+            if (( nuq > 0 )); then
+                printf '%s\n' "$uq" | grep . | pkg_sample 14 | sed 's/^/        /'
+            fi
             i=$((i + 1))
         done
         echo
