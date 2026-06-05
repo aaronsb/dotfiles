@@ -87,7 +87,13 @@ Run `dotfiles help` for the full manual.
 
 ```
 ~/.dotfiles/
-├── dotfiles           # Main management script (install/deploy/sync/pkg/...)
+├── dotfiles           # Entry point: loads lib/ modules, then dispatches
+├── lib/               # Command modules sourced by `dotfiles`
+│   ├── common.sh      #   colors, logging, manifest helpers
+│   ├── configs.sh     #   status/deploy/enable/disable/add/list
+│   ├── git.sh         #   diff/pull/push
+│   ├── pkg.sh         #   package tracking (pacman/AUR/flatpak)
+│   └── lifecycle.sh   #   install/update/remove + self-update check
 ├── bootstrap.sh       # New machine entry point (calls `dotfiles install`)
 ├── install.sh         # Thin wrapper → `dotfiles install`
 ├── HELP.md            # Full manual (rendered by `dotfiles help`)
