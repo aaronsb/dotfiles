@@ -212,6 +212,7 @@ radeontop
 ranger
 rate-mirrors
 rclone
+realtime-privileges
 reflector
 rocm-hip-sdk
 sc3-plugins
