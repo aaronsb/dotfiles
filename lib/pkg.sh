@@ -243,6 +243,115 @@ pkg_remove() {
     esac
 }
 
+# All hosts with a tracked package directory, sorted.
+pkg_hosts() {
+    [[ -d "$PACKAGES_DIR" ]] || return 0
+    find "$PACKAGES_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort
+}
+
+# Rotating color for the Nth host (keeps each host visually distinct).
+pkg_host_color() {
+    local palette=("$CYAN" "$PURPLE" "$YELLOW" "$BLUE" "$GREEN")
+    printf '%s' "${palette[$(( ${1:-0} % ${#palette[@]} ))]}"
+}
+
+# Read package names on stdin; print them space-joined and wrapped, capping at
+# $1 samples with a "… (+N more)" tail so overview lists stay legible.
+pkg_sample() {
+    local max="$1"; local -a items; mapfile -t items
+    local k=${#items[@]}
+    (( k == 0 )) && return 0
+    if (( k <= max )); then
+        printf '%s\n' "${items[*]}" | fold -s -w 70
+    else
+        printf '%s … (+%d more)\n' "${items[*]:0:max}" "$((k - max))" | fold -s -w 70
+    fi
+}
+
+# Pairwise diff: shared + only-on-A + only-on-B, per source. The only-on-X
+# lists are the actionable "install these to make X match" sets, shown in full.
+pkg_diff_pair() {
+    local a="$1" b="$2"
+    [[ -d "$PACKAGES_DIR/$a" ]] || { log_error "No tracked packages for host '$a'."; exit 1; }
+    [[ -d "$PACKAGES_DIR/$b" ]] || { log_error "No tracked packages for host '$b'."; exit 1; }
+    echo -e "${CYAN}═══ ${a} ⇄ ${b} ═══${NC}"
+    echo
+    local src
+    for src in "${PKG_SOURCES[@]}"; do
+        local la lb onlya onlyb ns na nb
+        la="$(pkg_tracked_list "$src" "$a")"
+        lb="$(pkg_tracked_list "$src" "$b")"
+        ns="$(comm -12 <(echo "$la") <(echo "$lb") | grep -c . || true)"
+        onlya="$(comm -23 <(echo "$la") <(echo "$lb") | grep . || true)"
+        onlyb="$(comm -13 <(echo "$la") <(echo "$lb") | grep . || true)"
+        na="$(printf '%s' "$onlya" | grep -c . || true)"
+        nb="$(printf '%s' "$onlyb" | grep -c . || true)"
+        printf "${YELLOW}%-8s${NC} ${GREEN}●%s${NC} shared   ${BLUE}◀%s${NC} %s-only   ${PURPLE}▶%s${NC} %s-only\n" \
+            "$src" "$ns" "$na" "$a" "$nb" "$b"
+        if [[ -n "$onlya" ]]; then
+            echo -e "  ${BLUE}◀ only on $a:${NC}"
+            printf '%s\n' "$onlya" | tr '\n' ' ' | fold -s -w 72 | sed 's/^/      /'
+        fi
+        if [[ -n "$onlyb" ]]; then
+            echo -e "  ${PURPLE}▶ only on $b:${NC}"
+            printf '%s\n' "$onlyb" | tr '\n' ' ' | fold -s -w 72 | sed 's/^/      /'
+        fi
+        echo
+    done
+}
+
+# N-way diff across all tracked hosts: common-to-all + each host's unique set.
+# (Skips the combinatorial middle regions, which explode past three hosts;
+# use the pairwise form for a detailed two-host comparison.)
+pkg_diff_all() {
+    local -a hosts; mapfile -t hosts < <(pkg_hosts)
+    local nh=${#hosts[@]}
+    (( nh >= 2 )) || { log_error "Need at least 2 tracked hosts to diff (have $nh)."; exit 1; }
+    local dotted; dotted="$(printf '%s · ' "${hosts[@]}")"; dotted="${dotted% · }"
+    echo -e "${CYAN}═══ packages across $nh hosts: $dotted ═══${NC}"
+    echo
+    local src
+    for src in "${PKG_SOURCES[@]}"; do
+        local -a files=(); local h
+        for h in "${hosts[@]}"; do
+            [[ -f "$PACKAGES_DIR/$h/$src.txt" ]] && files+=("$PACKAGES_DIR/$h/$src.txt")
+        done
+        echo -e "${YELLOW}$src${NC}"
+        if (( ${#files[@]} == 0 )); then
+            echo "  (no host tracks this source)"; echo; continue
+        fi
+        # A package present in N files is common to all; present in exactly 1 is
+        # unique. Capture output is sorted+unique per file, so a plain count works.
+        local nfiles=${#files[@]} counts common singletons
+        counts="$(cat "${files[@]}" | grep . | sort | uniq -c)"
+        common="$(awk -v t="$nfiles" '$1==t{print $2}' <<<"$counts" | grep -c . || true)"
+        singletons="$(awk '$1==1{print $2}' <<<"$counts" | sort)"
+        echo -e "  ${GREEN}● ${common}${NC} common to all $nfiles"
+        local i=0
+        for h in "${hosts[@]}"; do
+            [[ -f "$PACKAGES_DIR/$h/$src.txt" ]] || continue
+            local uq nuq col
+            uq="$(comm -12 <(sort "$PACKAGES_DIR/$h/$src.txt" | grep .) <(printf '%s\n' "$singletons" | grep .) || true)"
+            nuq="$(printf '%s' "$uq" | grep -c . || true)"
+            col="$(pkg_host_color "$i")"
+            printf "  ${col}◆ %-8s %s unique${NC}\n" "$h" "$nuq"
+            (( nuq > 0 )) && printf '%s\n' "$uq" | grep . | pkg_sample 14 | sed 's/^/        /'
+            i=$((i + 1))
+        done
+        echo
+    done
+}
+
+# Diff dispatcher: 0 args → all hosts; 1 arg → this host vs HOST; 2 → A vs B.
+cmd_pkg_diff() {
+    case $# in
+        0) pkg_diff_all ;;
+        1) pkg_diff_pair "$(pkg_host)" "$1" ;;
+        2) pkg_diff_pair "$1" "$2" ;;
+        *) log_error "diff takes 0 args (all hosts), 1 (this host vs HOST), or 2 (A B)."; exit 1 ;;
+    esac
+}
+
 # Package command dispatcher.
 cmd_pkg() {
     local sub="${1:-status}"
@@ -261,8 +370,9 @@ cmd_pkg() {
         capture) cmd_pkg_capture "${rest[@]}" ;;
         status)  cmd_pkg_status  "${rest[@]}" ;;
         sync)    cmd_pkg_sync    "${rest[@]}" ;;
+        diff)    cmd_pkg_diff    "${rest[@]}" ;;
         *)       log_error "Unknown pkg subcommand: $sub"; echo
-                 log_info "Try: dotfiles pkg [capture|status|sync] [--host <name>] [--prune]"
+                 log_info "Try: dotfiles pkg [capture|status|sync|diff] [--host <name>] [--prune]"
                  exit 1 ;;
     esac
 }

@@ -98,6 +98,14 @@ packages/<host>/
   saves configs as `.pacsave`** — its blast radius can exceed the listed
   packages, so read the prompt before confirming.
 
+- **`diff`** — compare tracked package sets across hosts (read-only; uses the
+  committed lists, so it works for any host from any machine). Three forms:
+  - `pkg diff` — N-way across **all** tracked hosts: count common-to-all plus
+    each host's unique packages (long lists are sampled with `… (+N more)`).
+  - `pkg diff A B` — pairwise: shared count plus the full **only-on-A** and
+    **only-on-B** lists (the "install these to make A match B" sets).
+  - `pkg diff HOST` — shorthand for `pkg diff <this host> HOST`.
+
 Flatpak installs default to the `flathub` remote; override with the
 `FLATPAK_REMOTE` environment variable.
 
