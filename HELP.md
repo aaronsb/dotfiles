@@ -131,6 +131,37 @@ Then prompts to confirm the push.
 - `--branch` / `-b` — push to a different remote branch
 - `--message` / `-m <msg>` — skip all prompts (commit message + push confirm); one-shot mode
 
+## Lifecycle: install / update / remove
+
+The `dotfiles` command in `~/.local/bin` is a **symlink into this repo**, so
+pulling the repo updates the tool itself transparently. These verbs make that
+lifecycle explicit. (They operate on the **tool**; `deploy` operates on your
+**configs** — two different layers.)
+
+Every other command also does a throttled check (once/day, on `main`, only when
+interactive) and prints a one-line nudge if the repo is behind `origin/main`.
+Disable with `DOTFILES_NO_UPDATE_CHECK=1`.
+
+### `install`
+
+Symlink the command into `~/.local/bin/dotfiles` and check `PATH`. Run as
+`./dotfiles install` from a fresh clone to self-install — this is what
+`install.sh` and `bootstrap.sh` now call under the hood.
+
+### `update`
+
+Pull the latest repo (which **self-updates this script** via the symlink), report
+the tool's commit change (`a1b2c3d → e4f5g6h`), then re-run `deploy` to apply any
+new/changed config symlinks. Brings the **tool and configs** current in one step
+(packages are separate — see `pkg sync`). If the pull advanced the tool, the
+deploy phase re-execs the updated tool so it runs the new code. Must be on `main`.
+
+### `remove`
+
+Remove the `~/.local/bin/dotfiles` command symlink only. Your deployed config
+symlinks and the repo are left intact. Re-install with `<repo>/dotfiles install`.
+(Alias: `uninstall`.)
+
 ### `help`
 
 This page.
