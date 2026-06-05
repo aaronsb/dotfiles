@@ -905,12 +905,16 @@ check_for_update() {
     [[ "$(git -C "$DOTFILES_DIR" rev-parse --abbrev-ref HEAD)" == "main" ]] || return 0
 
     local stamp="$HOME/.cache/dotfiles/last-check" now last=0 age
-    mkdir -p "$(dirname "$stamp")"
+    # This runs on the happy path of every command, so it must never abort it:
+    # guard the cache dir (read-only home) and stamp the *attempt* (not just a
+    # successful fetch) so an offline host doesn't re-fetch on every invocation.
+    mkdir -p "$(dirname "$stamp")" 2>/dev/null || return 0
     now="$(date +%s)"
     [[ -f "$stamp" ]] && last="$(date -r "$stamp" +%s 2>/dev/null || echo 0)"
     age=$(( now - last ))
     if (( age >= 86400 )); then
-        git -C "$DOTFILES_DIR" fetch origin main --quiet 2>/dev/null && touch "$stamp"
+        git -C "$DOTFILES_DIR" fetch origin main --quiet 2>/dev/null || true
+        touch "$stamp" 2>/dev/null || true
     fi
 
     local behind
@@ -925,8 +929,9 @@ cmd_install() {
     echo -e "${CYAN}=== Installing dotfiles command ===${NC}"
     echo
     mkdir -p "$LOCAL_BIN"
-    [[ -e "$DOTFILES_CMD_LINK" || -L "$DOTFILES_CMD_LINK" ]] && rm -f "$DOTFILES_CMD_LINK"
-    ln -s "$SCRIPT_PATH" "$DOTFILES_CMD_LINK"
+    # -f replaces any existing link atomically; -n avoids descending into a
+    # symlink-to-directory target. Cleaner than a non-atomic rm + ln.
+    ln -sfn "$SCRIPT_PATH" "$DOTFILES_CMD_LINK"
     log_success "Linked: $DOTFILES_CMD_LINK → $SCRIPT_PATH"
     if [[ ":$PATH:" != *":$LOCAL_BIN:"* ]]; then
         log_warning "$LOCAL_BIN is not on your PATH. Add to your shell config:"
@@ -937,9 +942,13 @@ cmd_install() {
 }
 
 # Update command - pull latest (self-updates the script) then re-deploy configs.
-# Safe to call deploy after the pull rewrites the script: every function body is
-# already parsed into memory before main runs, and the final line is hardened to
-# `main "$@"; exit $?` so no post-update bytes are read from the changed file.
+# Always targets main (the documented contract); no branch override.
+#
+# If the pull actually advanced HEAD, the deploy phase is run by re-exec'ing the
+# freshly-pulled tool (`exec "$SCRIPT_PATH" deploy`) rather than the in-memory
+# cmd_deploy. The running process still holds the OLD deploy logic — re-exec
+# ensures post-update work runs under post-update code (new manifest handling,
+# new configs, etc.), not just that it doesn't crash.
 cmd_update() {
     require_git_remote || exit 1
     echo -e "${CYAN}=== Updating dotfiles ===${NC}"
@@ -947,14 +956,18 @@ cmd_update() {
     local before after
     before="$(git -C "$DOTFILES_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
-    cmd_pull "$@"
+    cmd_pull
 
     after="$(git -C "$DOTFILES_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
     if [[ "$before" != "$after" ]]; then
         log_success "Tool updated: $before → $after"
+        echo
+        log_info "Re-executing the updated tool to deploy configs..."
+        exec "$SCRIPT_PATH" deploy
     fi
+
     echo
-    log_info "Re-deploying configs..."
+    log_info "Already up to date — re-deploying configs..."
     cmd_deploy
     echo
     log_success "Update complete."

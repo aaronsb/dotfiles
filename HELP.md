@@ -152,8 +152,9 @@ Symlink the command into `~/.local/bin/dotfiles` and check `PATH`. Run as
 
 Pull the latest repo (which **self-updates this script** via the symlink), report
 the tool's commit change (`a1b2c3d → e4f5g6h`), then re-run `deploy` to apply any
-new/changed config symlinks. The one command that brings the whole machine
-current. Must be on `main`.
+new/changed config symlinks. Brings the **tool and configs** current in one step
+(packages are separate — see `pkg sync`). If the pull advanced the tool, the
+deploy phase re-execs the updated tool so it runs the new code. Must be on `main`.
 
 ### `remove`
 
