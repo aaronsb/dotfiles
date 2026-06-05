@@ -19,27 +19,14 @@ LOCAL_BIN="$HOME/.local/bin"
 echo -e "${BLUE}=== Dotfiles Bootstrap ===${NC}"
 echo
 
-# Step 1: Install dotfiles command
+# Step 1: Install dotfiles command (delegated to the tool itself)
 echo -e "${GREEN}Step 1: Installing dotfiles command...${NC}"
+"$DOTFILES_SCRIPT" install
 
-# Create ~/.local/bin if it doesn't exist
-if [[ ! -d "$LOCAL_BIN" ]]; then
-    mkdir -p "$LOCAL_BIN"
-    echo "Created $LOCAL_BIN"
-fi
-
-# Create symlink to dotfiles script
-if [[ -L "$LOCAL_BIN/dotfiles" ]]; then
-    rm "$LOCAL_BIN/dotfiles"
-fi
-ln -s "$DOTFILES_SCRIPT" "$LOCAL_BIN/dotfiles"
-echo "Created symlink: dotfiles -> $DOTFILES_SCRIPT"
-
-# Check if ~/.local/bin is in PATH
+# Check if ~/.local/bin is in PATH (affects how later steps invoke the command)
 PATH_WARNING=false
 if [[ ":$PATH:" != *":$LOCAL_BIN:"* ]]; then
     PATH_WARNING=true
-    echo -e "${YELLOW}WARNING: $LOCAL_BIN is not in your PATH${NC}"
 fi
 
 echo
