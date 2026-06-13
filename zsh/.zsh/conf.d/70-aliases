@@ -25,7 +25,10 @@ alias gitu='git add . && git commit && git push'
 #   sshmux user@host          → same thing, longer name (keep whichever you use)
 #   smux -p 2222 user@host    → any ssh flags pass straight through
 smux() {
-  ssh -t "$@" "tmux new-session -A -s main"
+  # Force a UTF-8 locale on the remote so tmux renders nerd-font glyphs.
+  # ssh doesn't forward $LANG and command-exec skips /etc/locale.conf, so without
+  # this tmux starts in C/POSIX and mangles Private-Use glyphs into '_'.
+  ssh -t "$@" "LANG='${LANG:-en_US.UTF-8}' tmux new-session -A -s main"
 }
 alias sshmux='smux'
 
