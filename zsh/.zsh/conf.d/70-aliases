@@ -18,8 +18,16 @@ alias ip='ip -c'
 # Git convenience
 alias gitu='git add . && git commit && git push'
 
-# Terminal multiplexer — 'zellij' is a forgettable name; 'mux' is muscle-memory
-alias mux='zellij'
+# Remote tmux resume — your 'ssh user@host' habit, but it attaches (or creates)
+# a persistent tmux session on the far end, so you can disconnect and pick up
+# right where you left off. Detach with the menu (File -> Detach) or  prefix d.
+#   smux user@host            → attach/create session 'main' on host
+#   sshmux user@host          → same thing, longer name (keep whichever you use)
+#   smux -p 2222 user@host    → any ssh flags pass straight through
+smux() {
+  ssh -t "$@" "tmux new-session -A -s main"
+}
+alias sshmux='smux'
 
 lsd_with_hint() {
   /usr/bin/lsd "$@"
