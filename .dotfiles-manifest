@@ -12,3 +12,4 @@ mlterm-fb-launcher|mlterm/mlterm-fb|.local/bin/mlterm-fb|true|symlink
 mlterm-main|mlterm/main|.mlterm/main|true|symlink
 mlterm-aafont|mlterm/aafont|.mlterm/aafont|true|symlink
 mlterm-color|mlterm/color|.mlterm/color|true|symlink
+zprofile|zsh/.zprofile|.zprofile|true|symlink
