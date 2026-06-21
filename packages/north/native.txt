@@ -60,6 +60,7 @@ dragon
 dysk
 easyeffects
 efibootmgr
+esptool
 evtest
 expect
 extra-cmake-modules
@@ -86,10 +87,13 @@ github-cli
 gitleaks
 git-lfs
 gitui
+glab
 glfw
+glib2-devel
 glmark2
 glow
 go
+gobject-introspection
 godot
 gperf
 grub
@@ -151,6 +155,7 @@ mda.lv2
 md-tui
 mediainfo
 mermaid-cli
+meson
 milkytracker
 mitmproxy
 mpv
@@ -173,6 +178,7 @@ okular
 openrgb
 openssh
 otf-libertinus
+oxygen
 pacman-contrib
 pandoc-cli
 pandoc-crossref
@@ -270,7 +276,9 @@ upx
 uv
 v4l2loopback-dkms
 vim
+virt-manager
 virtualbox
+virt-viewer
 vkd3d
 vlc
 vlc-gui-qt
@@ -285,7 +293,6 @@ vulkan-radeon
 vulkan-tools
 vulkan-utility-libraries
 vulkan-validation-layers
-waybar
 webkit2gtk-4.1
 wget
 whois
@@ -298,6 +305,7 @@ wireshark-cli
 wl-clipboard
 wlr-randr
 wrangler
+x11-ssh-askpass
 xdg-desktop-portal-kde
 xorg-server-xvfb
 xorg-xrandr
@@ -307,7 +315,6 @@ yt-dlp
 yt-dlp-ejs
 yubikey-manager
 zbar
-zellij
 zsh
 zsh-autosuggestions
 zsh-completions

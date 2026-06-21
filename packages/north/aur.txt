@@ -22,6 +22,7 @@ dtrx
 durdraw
 easy-zsh-config
 fake-battery-nut-dkms
+fbterm
 flow-control
 fswebcam
 gephi
@@ -64,6 +65,7 @@ tikzit
 toilet-fonts
 ttf-arphic-tex-extra
 ttf-barlow
+ttt-bin
 update-grub
 upscayl-appimage
 visual-studio-code-bin

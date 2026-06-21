@@ -8,3 +8,5 @@ zsh-config|zsh/.zsh|.zsh|true|symlink
 oh-my-posh-themes|oh-my-posh/themes|.config/oh-my-posh/themes|true|symlink
 posh-theme|oh-my-posh/posh-theme|.local/bin/posh-theme|true|symlink
 tmux-menu|tmux-menu/menus.toml|.config/tmux-menu/menus.toml|true|symlink
+fbterm|fbterm/.fbtermrc|.fbtermrc|true|symlink
+fbterm-palette|fbterm/breeze-palette.sh|.config/fbterm/breeze-palette.sh|true|symlink

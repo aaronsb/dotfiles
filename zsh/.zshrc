@@ -22,3 +22,8 @@ if [[ -d "$ZSH_CONFD" ]]; then
   unset _f
 fi
 unset ZSH_CONFD
+
+# --- fbterm: apply Breeze 16-color palette on the console (not inside tmux/X) ---
+if [[ "$TERM" == "fbterm" ]]; then
+  [[ -f ~/.config/fbterm/breeze-palette.sh ]] && source ~/.config/fbterm/breeze-palette.sh
+fi
