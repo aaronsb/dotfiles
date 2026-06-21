@@ -4,7 +4,10 @@
 _fb_setpal() { printf '\033[3;%d;%d;%d;%d}' "$1" "$2" "$3" "$4"; }
 
 # normal (0-7): Color0..Color7
-_fb_setpal 0   35  38  39    # black   (Color0)
+# NOTE: index 0 is fbterm's default/erase background. Redefining it desyncs
+# drawn cells from erased/padded cells -> "zebra stripes" in colored output
+# (e.g. lsd). Leave it at fbterm's native black so erase and draw stay in sync.
+# _fb_setpal 0   35  38  39    # black (Color0) -- intentionally NOT set
 _fb_setpal 1  237  21  21    # red     (Color1)
 _fb_setpal 2   17 209  22    # green   (Color2)
 _fb_setpal 3  246 116   0    # yellow  (Color3)

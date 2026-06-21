@@ -42,6 +42,7 @@ lug-helper
 markdown2pdf
 marktext-bin
 mdcat
+mlterm-fb
 mmaid
 mmm
 nct6687d-dkms-git
