@@ -22,7 +22,6 @@ dtrx
 durdraw
 easy-zsh-config
 fake-battery-nut-dkms
-fbterm
 flow-control
 fswebcam
 gephi
