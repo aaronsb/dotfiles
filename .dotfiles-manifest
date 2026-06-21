@@ -9,6 +9,8 @@ oh-my-posh-themes|oh-my-posh/themes|.config/oh-my-posh/themes|true|symlink
 posh-theme|oh-my-posh/posh-theme|.local/bin/posh-theme|true|symlink
 tmux-menu|tmux-menu/menus.toml|.config/tmux-menu/menus.toml|true|symlink
 mlterm-fb-launcher|mlterm/mlterm-fb|.local/bin/mlterm-fb|true|symlink
+mlterm-fontgen|mlterm/mlterm-fontgen|.local/bin/mlterm-fontgen|true|symlink
+mlfc-guard|mlterm/mlfc-guard|.local/bin/mlfc|true|symlink
 mlterm-main|mlterm/main|.mlterm/main|true|symlink
 mlterm-aafont|mlterm/aafont|.mlterm/aafont|true|symlink
 mlterm-color|mlterm/color|.mlterm/color|true|symlink
