@@ -19,9 +19,17 @@ DOTFILES_CMD="$LOCAL_BIN/dotfiles"   # the installed Rust CLI (absolute, PATH-in
 echo -e "${BLUE}=== Dotfiles Bootstrap ===${NC}"
 echo
 
-# Step 1: Install the tooling (Rust `dotfiles` CLI + `dotfiles-bash` fallback)
+# Step 1: Install the tooling (Rust `dotfiles` CLI + `dotfiles-bash` fallback).
+# Honor the version pin so a fresh machine installs exactly the CLI release this
+# store expects — a reproducible fleet, not whatever happens to be `latest`.
+# Falls back to `latest` when the pin file is absent.
 echo -e "${GREEN}Step 1: Installing dotfiles command...${NC}"
-"$DOTFILES_DIR/install.sh"
+PIN_FILE="$DOTFILES_DIR/.dotfiles-cli.version"
+if [[ -f "$PIN_FILE" ]]; then
+    DOTFILES_VERSION="$(tr -d '[:space:]' < "$PIN_FILE")" "$DOTFILES_DIR/install.sh"
+else
+    "$DOTFILES_DIR/install.sh"
+fi
 
 # Check if ~/.local/bin is in PATH (affects how later steps invoke the command)
 PATH_WARNING=false
