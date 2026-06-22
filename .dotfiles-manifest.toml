@@ -1,8 +1,7 @@
 # Dotfiles Manifest (TOML, ADR-003 array-of-tables).
 #
-# Read by the Rust `dotfiles` tool. The legacy pipe-format `.dotfiles-manifest`
-# is kept alongside this file during convergence (the bash `dotfiles-bash` tool
-# still reads it); keep the two in sync until bash is retired.
+# The sole manifest, read by the Rust `dotfiles` tool. The legacy pipe-format
+# `.dotfiles-manifest` and the bash tool that read it have been retired.
 #
 # Each [[entry]] is one managed dotfile. Required: name, path (source, relative
 # to the repo root), target (relative to $HOME). Optional: enabled (default
@@ -104,6 +103,31 @@ spec.run_mode = "run-not-exec"
 spec.requires.packages = ["mlterm-fb"]
 spec.requires.groups   = ["video", "input"]
 spec.requires.entries  = ["mlterm-main", "mlterm-aafont", "mlterm-color"]
+
+[[entry]]
+name = "polkitctl"
+path = "polkit/polkitctl"
+target = ".local/bin/polkitctl"
+why = "Lifecycle for passive polkit fragments tracked in polkit/rules/: apply/remove/status/diff against /etc/polkit-1/rules.d. Fragments are inert until explicitly applied (sudo); never auto-deployed, single-host only — no per-host convergence, which is the deliberate line short of fleet management."
+spec.summary  = "Manual single-host lifecycle (status/apply/remove/diff) for inert polkit fragments in polkit/rules/; the only path to /etc, always sudo'd, never wired into deploy."
+spec.concern  = "system-policy"
+spec.platform = "linux"
+spec.tags     = ["polkit", "privilege", "single-host"]
+spec.provides = ["polkitctl"]
+spec.requires.packages = ["polkit"]
+
+[[entry]]
+name = "waydesk"
+path = "waydesk/waydesk"
+target = ".local/bin/waydesk"
+why = "One-shot launcher for a remote Wayland desktop over waypipe+ssh, forked to run detached. Lets any machine reach another (north<->slab<->cube) and bring up a nested Plasma/sway session without relay or STUN — LAN/VPN only."
+spec.summary  = "Detached remote Wayland desktop (nested Plasma/sway) over waypipe+ssh; LAN/VPN, no relay. Needs a live local Wayland session to display into."
+spec.concern  = "remote-desktop"
+spec.platform = "linux-wayland"
+spec.tags     = ["waypipe", "ssh", "plasma"]
+spec.provides = ["waydesk"]
+spec.depends  = ["polkitctl"]
+spec.requires.packages = ["waypipe", "openssh"]
 
 [profiles.north]
 
