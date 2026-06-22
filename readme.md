@@ -6,20 +6,25 @@ Yes I know it's silly that it's called dotfiles, with a .
 
 ## 🚀 Bootstrap on a New Machine
 
-One-liner (clone, then run the bootstrap that lives in the clone):
+One-liner — works on a fresh machine *or* when re-enrolling one that already has `~/.dotfiles`:
 
 ```bash
-git clone https://github.com/aaronsb/dotfiles.git ~/.dotfiles && ~/.dotfiles/bootstrap.sh
+git clone https://github.com/aaronsb/dotfiles.git ~/.dotfiles 2>/dev/null || git -C ~/.dotfiles pull --ff-only
+~/.dotfiles/bootstrap.sh
 ```
 
 > Not `curl | bash`: bootstrap **must** run from inside the clone (the
 > `dotfiles` command is a symlink back into the repo), and cloning first gives
-> you a repo you can inspect. Assumes `~/.dotfiles` doesn't already exist.
+> you a repo you can inspect. Clones if `~/.dotfiles` is absent, fast-forwards
+> it if it's already there — so the line is safe to re-run for re-enrollment.
+> (A `--ff-only` that can't fast-forward means the local checkout has diverged;
+> reconcile it by hand rather than clobbering it.)
 
 Or step by step:
 
 ```bash
-git clone https://github.com/aaronsb/dotfiles.git ~/.dotfiles
+# clone if new, or fast-forward an existing checkout
+git clone https://github.com/aaronsb/dotfiles.git ~/.dotfiles 2>/dev/null || git -C ~/.dotfiles pull --ff-only
 ~/.dotfiles/bootstrap.sh   # interactive setup
 source ~/.zshrc            # reload your shell
 ```
