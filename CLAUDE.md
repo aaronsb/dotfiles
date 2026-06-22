@@ -4,14 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-This is a dotfiles repository for managing configuration files across machines. It includes a custom `dotfiles` management tool that handles deployment via symlinks, capturing configs, and tracking changes.
+This is a dotfiles repository for managing configuration files across machines. It includes a custom `dotfiles` management tool (a Rust CLI; source in `dotfiles-tui/`) that handles deployment via symlinks and tracks what's managed in a self-documenting TOML manifest.
 
 ## Directory Structure
 
-- `dotfiles` - Main management script (the heart of the system)
+- `dotfiles-tui/` - Rust CLI source (its own repo): `crates/` (cli + core) and `docs/architecture/` (ADRs)
 - `bootstrap.sh` - Initial setup script for new machines
-- `install.sh` - Quick installer for the dotfiles command
-- `.dotfiles-manifest` - Tracks which dotfiles are managed
+- `install.sh` - Installs the prebuilt `dotfiles` CLI into `~/.local/bin`
+- `.dotfiles-cli.version` - Pinned CLI release for reproducible installs
+- `.dotfiles-manifest.toml` - The manifest: what's managed, why, and optional spec
 - `tmux/` - Tmux terminal multiplexer configuration
 - `zsh/` - Z shell configuration
 
@@ -71,7 +72,7 @@ When adding a new tool's configuration:
    dotfiles add nvim .config/nvim
 
    # For directories that need full copy (like nested git repos)
-   dotfiles add some-tool .config/some-tool some-tool copy
+   dotfiles add some-tool .config/some-tool some-tool --mode copy
    ```
 
 2. This will:

@@ -19,7 +19,7 @@ DOTFILES_CMD="$LOCAL_BIN/dotfiles"   # the installed Rust CLI (absolute, PATH-in
 echo -e "${BLUE}=== Dotfiles Bootstrap ===${NC}"
 echo
 
-# Step 1: Install the tooling (Rust `dotfiles` CLI + `dotfiles-bash` fallback).
+# Step 1: Install the tooling (Rust `dotfiles` CLI).
 # Honor the version pin so a fresh machine installs exactly the CLI release this
 # store expects — a reproducible fleet, not whatever happens to be `latest`.
 # Falls back to `latest` when the pin file is absent.

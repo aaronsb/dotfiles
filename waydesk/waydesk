@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# waydesk — one-shot remote Wayland desktop over waypipe + ssh, detached.
+#
+# Brings up a remote desktop session (a nested compositor shipped through
+# waypipe) and forks it into its own session, so your terminal is freed and the
+# desktop is not tied to the launching shell. LAN/VPN use — plain ssh transport,
+# no relay, no STUN. Reciprocal by nature: any box can reach any other
+# (north <-> slab <-> cube).
+#
+# Usage:
+#   waydesk [user@]host [-- remote-command ...]
+#
+#     host            a bare host assumes the local $USER
+#     -- cmd ...      override the remote session command
+#                     (default: dbus-run-session startplasma-wayland)
+#
+# Examples:
+#   waydesk slab                  # Plasma on slab, as $USER
+#   waydesk bockeliea@slab        # Plasma on slab, explicit remote user
+#   waydesk north -- sway         # sway instead of Plasma
+#
+# Tunables (env):
+#   WAYDESK_WAYPIPE_OPTS   waypipe flags (default: --compress=lz4)
+
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: waydesk [user@]host [-- remote-command ...]
+       bare host assumes local $USER; default session is Plasma (Wayland)
+EOF
+  exit "${1:-0}"
+}
+
+[[ $# -ge 1 ]] || usage 1
+case "$1" in -h|--help|help) usage 0 ;; esac
+
+target="$1"; shift
+[[ "$target" == *@* ]] || target="$USER@$target"
+host="${target#*@}"
+
+# remote session command: everything after `--`, else a default Plasma session
+if [[ "${1:-}" == "--" ]]; then
+  shift
+  [[ $# -ge 1 ]] || { echo "waydesk: no command given after --" >&2; exit 1; }
+  remote_cmd=( "$@" )
+else
+  remote_cmd=( dbus-run-session startplasma-wayland )
+fi
+
+# we display into the LOCAL compositor — it must exist
+[[ -n "${WAYLAND_DISPLAY:-}" ]] || {
+  echo "waydesk: no WAYLAND_DISPLAY — run from inside your local Wayland session" >&2
+  exit 1
+}
+command -v waypipe >/dev/null || { echo "waydesk: waypipe not installed locally" >&2; exit 1; }
+
+read -r -a wp_opts <<< "${WAYDESK_WAYPIPE_OPTS:---compress=lz4}"
+
+logdir="${XDG_CACHE_HOME:-$HOME/.cache}/waydesk"
+mkdir -p "$logdir"
+log="$logdir/$host.log"
+
+echo "waydesk → $target : ${remote_cmd[*]}"
+echo "          log: $log"
+setsid -f waypipe "${wp_opts[@]}" ssh "$target" "${remote_cmd[@]}" >"$log" 2>&1
+echo "launched (detached) — closing this terminal won't kill it."
