@@ -106,3 +106,5 @@ spec.requires.groups   = ["video", "input"]
 spec.requires.entries  = ["mlterm-main", "mlterm-aafont", "mlterm-color"]
 
 [profiles.north]
+
+[profiles.slab]
