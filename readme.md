@@ -1,8 +1,13 @@
 # Dotfiles
 
-Personal configuration files managed with a custom dotfiles management tool.
+Personal configuration files managed with a custom `dotfiles` tool.
 
 Yes I know it's silly that it's called dotfiles, with a .
+
+The `dotfiles` command is a small Rust CLI (source lives in [`dotfiles-tui/`](dotfiles-tui/),
+its own repo). It reads a single self-documenting manifest, `.dotfiles-manifest.toml`,
+and deploys each managed config as a symlink into `$HOME`. Design decisions are
+recorded as ADRs under `dotfiles-tui/docs/architecture/`.
 
 ## 🚀 Bootstrap on a New Machine
 
@@ -13,12 +18,12 @@ git clone https://github.com/aaronsb/dotfiles.git ~/.dotfiles 2>/dev/null || git
 ~/.dotfiles/bootstrap.sh
 ```
 
-> Not `curl | bash`: bootstrap **must** run from inside the clone (the
-> `dotfiles` command is a symlink back into the repo), and cloning first gives
-> you a repo you can inspect. Clones if `~/.dotfiles` is absent, fast-forwards
-> it if it's already there — so the line is safe to re-run for re-enrollment.
-> (A `--ff-only` that can't fast-forward means the local checkout has diverged;
-> reconcile it by hand rather than clobbering it.)
+> Not `curl | bash`: bootstrap **must** run from inside the clone — it reads the
+> repo (the manifest and the pinned CLI version) and deploys from it. Cloning
+> first also gives you a repo you can inspect. The line clones if `~/.dotfiles`
+> is absent and fast-forwards it if it's already there, so it's safe to re-run
+> for re-enrollment. (A `--ff-only` that can't fast-forward means the local
+> checkout has diverged; reconcile it by hand rather than clobbering it.)
 
 Or step by step:
 
@@ -30,18 +35,21 @@ source ~/.zshrc            # reload your shell
 ```
 
 The bootstrap script will:
-- Install the `dotfiles` command (via `dotfiles install`)
+- Install the `dotfiles` command — runs `install.sh`, which downloads the
+  prebuilt Rust CLI to `~/.local/bin`, honoring the release pinned in
+  `.dotfiles-cli.version` for a reproducible install
 - Show current status
-- Offer to deploy configs (with preview option)
+- Offer to deploy configs (with a preview option)
 
 Already cloned and just need the command on a new shell? Run
-`~/.dotfiles/dotfiles install` directly.
+`~/.dotfiles/install.sh` directly.
 
 ## 📋 Daily Commands
 
 ```bash
 dotfiles status     # What's deployed?
 dotfiles list       # What's managed?
+dotfiles show <app> # One config in full: rationale, spec, deploy state
 ```
 
 Since everything deploys as symlinks, editing either `~/.tmux.conf` or
@@ -56,10 +64,12 @@ Since everything deploys as symlinks, editing either `~/.tmux.conf` or
 |---------|-------------|---------|
 | `status` | Show what's deployed vs available | `dotfiles status` |
 | `deploy` | Create symlinks to activate configs | `dotfiles deploy --dry-run` |
-| `add` | Add new app to management | `dotfiles add nvim .config/nvim` |
+| `add` | Add a new app to the manifest | `dotfiles add nvim .config/nvim` |
 | `enable` | Enable a disabled config | `dotfiles enable vim` |
-| `disable` | Temporarily disable a config | `dotfiles disable tmux` |
+| `disable` | Disable a config (removes its symlink) | `dotfiles disable tmux` |
+| `remove` | Drop an entry from the manifest (leaves deployed files) | `dotfiles remove vim` |
 | `list` | Show all managed configs | `dotfiles list` |
+| `show` | One config in full: `why`, structured spec, deploy state | `dotfiles show waydesk` |
 
 **Sync (git layer)**
 
@@ -69,61 +79,70 @@ Since everything deploys as symlinks, editing either `~/.tmux.conf` or
 | `pull` | Fast-forward pull from origin | `dotfiles pull` |
 | `push` | Commit + push to origin | `dotfiles push -m "tmux: ..."` |
 
-**Lifecycle (tool layer)**
+**Profiles (named scopes per machine/role)**
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `install` | Symlink the command into `~/.local/bin` | `./dotfiles install` |
-| `update` | Pull latest (self-updates the tool) + re-deploy | `dotfiles update` |
-| `remove` | Remove the command symlink (configs stay) | `dotfiles remove` |
-| `help` | Open the full manual | `dotfiles help` |
+| `profile list` | List declared profiles, active one marked | `dotfiles profile list` |
+| `profile use` | Record the active profile for this host | `dotfiles profile use slab` |
+| `profile add` | Declare a profile and create its package dir | `dotfiles profile add cube` |
+| `profile copy` | Copy memberships / package lists between profiles | `dotfiles profile copy slab cube` |
+| `profile remove` | Drop a profile from the registry | `dotfiles profile remove cube` |
 
-**Packages (system layer)**
+**Packages (system layer, Arch family)**
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `pkg capture` | Record this host's explicit packages | `dotfiles pkg capture` |
-| `pkg status` | Show package drift (tracked vs installed) | `dotfiles pkg status` |
+| `pkg capture` | Write this host's live package lists to disk | `dotfiles pkg capture` |
+| `pkg status` | Per-source drift (tracked vs installed) | `dotfiles pkg status` |
 | `pkg sync` | Install tracked-but-missing (`--prune` removes extras) | `dotfiles pkg sync` |
-| `pkg diff` | Compare package sets across hosts | `dotfiles pkg diff north slab` |
+| `pkg diff` | Compare tracked lists across hosts | `dotfiles pkg diff north slab` |
 
-Run `dotfiles help` for the full manual.
+Run `dotfiles help` (or `dotfiles --help`) for the full command reference.
+
+### Updating the tool
+
+The CLI is a prebuilt binary, not a symlink into the repo, so it doesn't
+self-update. To move to a newer release, bump `.dotfiles-cli.version` (or remove
+it to track latest) and re-run `~/.dotfiles/install.sh`.
 
 ## 📁 Directory Structure
 
 ```
 ~/.dotfiles/
-├── dotfiles           # Entry point: loads lib/ modules, then dispatches
-├── lib/               # Command modules sourced by `dotfiles`
-│   ├── common.sh      #   colors, logging, manifest helpers
-│   ├── configs.sh     #   status/deploy/enable/disable/add/list
-│   ├── git.sh         #   diff/pull/push
-│   ├── pkg.sh         #   package tracking (pacman/AUR/flatpak)
-│   └── lifecycle.sh   #   install/update/remove + self-update check
-├── bootstrap.sh       # New machine entry point (calls `dotfiles install`)
-├── install.sh         # Thin wrapper → `dotfiles install`
-├── HELP.md            # Full manual (rendered by `dotfiles help`)
-├── .dotfiles-manifest # Tracking what's managed
-├── CLAUDE.md          # AI assistant instructions
-├── readme.md          # This file
+├── dotfiles-tui/            # Rust CLI source (its own repo)
+│   ├── crates/             #   dotfiles-cli (surface) + dotfiles-core (manifest, deploy, pkg)
+│   └── docs/architecture/  #   ADRs — the recorded design decisions
+├── bootstrap.sh            # New-machine entry point: install the CLI, then deploy
+├── install.sh              # Downloads the prebuilt `dotfiles` CLI → ~/.local/bin
+├── .dotfiles-cli.version   # Pinned CLI release, for reproducible installs
+├── .dotfiles-manifest.toml # The manifest: what's managed, why, and optional spec
+├── CLAUDE.md               # AI assistant instructions
+├── readme.md               # This file
 │
-├── tmux/
-│   └── .tmux.conf    # → ~/.tmux.conf
-├── zsh/
-│   ├── .zshrc        # → ~/.zshrc
-│   └── .zsh/         # → ~/.zsh (conf.d fragments + host.d/ per-host)
-├── oh-my-posh/       # → ~/.config/oh-my-posh/* and ~/.local/bin/posh-theme
-├── nvim/             # → ~/.config/nvim
-└── packages/         # Per-host package lists (pkg subsystem, not symlinked)
+├── tmux/         # → ~/.tmux.conf
+├── zsh/          # → ~/.zshrc, ~/.zprofile, ~/.zsh (conf.d fragments + host.d/)
+├── oh-my-posh/   # → ~/.config/oh-my-posh/* and ~/.local/bin/posh-theme
+├── nvim/         # → ~/.config/nvim
+├── mlterm/       # → ~/.mlterm/* and framebuffer-terminal launchers on PATH
+├── tmux-menu/    # → ~/.config/tmux-menu/menus.toml
+├── polkit/       # polkitctl + inert polkit rule fragments (applied manually)
+├── waydesk/      # remote Wayland desktop launcher (waypipe + ssh)
+└── packages/     # Per-host package lists (pkg subsystem, not symlinked)
     └── <hostname>/   #   native.txt · aur.txt · flatpak.txt
 ```
+
+The manifest (`.dotfiles-manifest.toml`) is self-documenting: each `[[entry]]`
+carries a `why` rationale and an optional structured `spec` (requirements,
+platform, tags). `dotfiles show <app>` renders it. See the file header and ADR-002
+/ ADR-003 / ADR-006 for the schema.
 
 ## 💡 Helpful Reminders
 
 ### Making Changes
-1. **Edit in either location** - Changes to `~/.tmux.conf` or `~/.dotfiles/tmux/.tmux.conf` affect both
-2. **Test before committing** - Make sure your changes work!
-3. **Use descriptive commits** - Future you will thank present you
+1. **Edit in either location** — changes to `~/.tmux.conf` or `~/.dotfiles/tmux/.tmux.conf` affect both
+2. **Test before committing** — make sure your changes work!
+3. **Use descriptive commits** — future you will thank present you
 
 ### Good Git Commit Messages
 ```bash
@@ -139,21 +158,13 @@ git commit -m "tmux: Add weather widget to status bar
 
 ### Adding New Tools
 ```bash
-# Example: Add neovim config
-dotfiles add nvim .config/nvim
+# Example: add a neovim config
+dotfiles add nvim .config/nvim --why "Editor config carried whole"
 
-# This will:
-# 1. Add to manifest
-# 2. Create directory structure
-# (drop existing config files into nvim/ yourself before deploying)
-
-# Then commit:
-git add nvim/ .dotfiles-manifest
-git commit -m "nvim: Add initial neovim configuration
-
-- Based on kickstart.nvim
-- Includes LSP for Python and Go
-- Custom keybindings for navigation"
+# Drop the actual config files into nvim/ before deploying, then:
+dotfiles deploy
+git add nvim/ .dotfiles-manifest.toml
+git commit -m "nvim: Add initial neovim configuration"
 ```
 
 ### Syncing Changes
@@ -163,21 +174,13 @@ The tool wraps git so you don't drop to raw commands:
 ```bash
 # Push your changes (prompts for a commit message)
 dotfiles push
-dotfiles push -m "tmux: add weather widget"   # one-shot, no prompts
+dotfiles push -m "tmux: add weather widget"   # one-shot, no prompt
 
-# On another machine — pull + re-deploy in one step
-dotfiles update            # self-updates the tool, then deploys configs
-
-# Or preview/pull manually
+# On another machine — pull, then re-deploy
 dotfiles diff --details    # what would pull/push do?
 dotfiles pull              # fast-forward only
 dotfiles deploy            # symlink any new configs
 ```
-
-Because the `dotfiles` command is itself a symlink into the repo, `pull`/`update`
-upgrade the tool transparently — `update` reports the version bump so it's not a
-silent change. Every command also nudges you when the repo is behind origin
-(disable with `DOTFILES_NO_UPDATE_CHECK=1`).
 
 ### Tracking Packages (Arch family)
 
@@ -193,23 +196,24 @@ dotfiles pkg sync          # install tracked-but-missing (additive)
 dotfiles pkg sync --prune  # also remove untracked (sharper edge)
 ```
 
-Sources (native/AUR/flatpak) absent on a host are skipped, not errored. See
-`dotfiles help` for details.
+Sources (native/AUR/flatpak) absent on a host are skipped, not errored.
 
 ## 🔧 How It Works
 
-The system uses **symbolic links** (symlinks):
+Managed configs are deployed as **symbolic links**:
 - Real files live in `~/.dotfiles/<app>/`
-- System locations have symlinks pointing to these files
+- System locations hold symlinks pointing back to them
 - Git tracks the real files in the repo
-- Changes anywhere affect both locations
+- An edit in either place changes the same bytes
 
-Example:
 ```
 ~/.tmux.conf → ~/.dotfiles/tmux/.tmux.conf
      ↑                      ↑
   symlink              real file
 ```
+
+(A few entries deploy in *copy* mode instead — for directories that need a full
+copy. The manifest's `mode` field records which.)
 
 ## 🆘 Troubleshooting
 
@@ -222,32 +226,25 @@ source ~/.zshrc
 
 ### Deployment conflicts
 ```bash
-# See what's blocking
-dotfiles status
-
-# Force deploy with backups
-dotfiles deploy --force
-
-# Check backups if needed
-ls ~/.dotfiles-backup/
+dotfiles status            # see what's blocking
+dotfiles deploy --force    # back up existing files, then overwrite
+ls ~/.dotfiles-backup/     # check the backups
 ```
 
 ### Accidental changes
 ```bash
-# See what changed (configs are symlinks, so git in the repo tells you)
+# Configs are symlinks, so git in the repo tells you what changed
 cd ~/.dotfiles && git status && git diff
 
-# Restore from repo
-git checkout -- <file>
-
-# Or restore from a deploy backup
+git checkout -- <file>     # restore from repo
+# or restore from a deploy backup:
 cp ~/.dotfiles-backup/.tmux.conf.20240315_142035 ~/.tmux.conf
 ```
 
 ## 📝 Notes for Future Me
 
-- **Commit often** - Small, focused changes are easier to understand
-- **Document weird configs** - Add comments explaining non-obvious settings
-- **Test on fresh systems** - Spin up a VM occasionally to test bootstrap
-- **Review old configs** - `git log --grep="tmux"` to see evolution
-- **Keep it simple** - Resist the urge to over-engineer
+- **Commit often** — small, focused changes are easier to understand
+- **Document weird configs** — use the manifest `why`/`spec` and inline comments
+- **Test on fresh systems** — spin up a VM occasionally to test bootstrap
+- **Review old configs** — `git log --grep="tmux"` to see evolution
+- **Keep it simple** — resist the urge to over-engineer
