@@ -13,8 +13,11 @@
 # A lightweight check on every run nudges you when the repo is behind origin.
 # ============================================================================
 
+# This tool is now the fallback `dotfiles-bash`; the primary `dotfiles` is the
+# Rust binary. Self-install links `dotfiles-bash` so it never clobbers the Rust
+# command at `$LOCAL_BIN/dotfiles`.
 LOCAL_BIN="$HOME/.local/bin"
-DOTFILES_CMD_LINK="$LOCAL_BIN/dotfiles"
+DOTFILES_CMD_LINK="$LOCAL_BIN/dotfiles-bash"
 
 # Non-blocking "you're behind origin" nudge. Skipped on non-tty, when disabled,
 # off-main, or without a usable remote. Network fetch is throttled to once/day
