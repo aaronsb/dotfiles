@@ -24,3 +24,6 @@
 /.claude/
 # Local dev checkout of the Rust CLI source (installed as a release binary, not a submodule)
 /dotfiles-tui/
+
+# Machine-specific active profile marker (set by `dotfiles profile use`)
+.dotfiles-profile
