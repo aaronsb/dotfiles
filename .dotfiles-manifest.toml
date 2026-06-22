@@ -104,3 +104,5 @@ spec.run_mode = "run-not-exec"
 spec.requires.packages = ["mlterm-fb"]
 spec.requires.groups   = ["video", "input"]
 spec.requires.entries  = ["mlterm-main", "mlterm-aafont", "mlterm-color"]
+
+[profiles.north]
