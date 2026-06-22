@@ -13,15 +13,15 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DOTFILES_SCRIPT="$DOTFILES_DIR/dotfiles"
 LOCAL_BIN="$HOME/.local/bin"
+DOTFILES_CMD="$LOCAL_BIN/dotfiles"   # the installed Rust CLI (absolute, PATH-independent)
 
 echo -e "${BLUE}=== Dotfiles Bootstrap ===${NC}"
 echo
 
-# Step 1: Install dotfiles command (delegated to the tool itself)
+# Step 1: Install the tooling (Rust `dotfiles` CLI + `dotfiles-bash` fallback)
 echo -e "${GREEN}Step 1: Installing dotfiles command...${NC}"
-"$DOTFILES_SCRIPT" install
+"$DOTFILES_DIR/install.sh"
 
 # Check if ~/.local/bin is in PATH (affects how later steps invoke the command)
 PATH_WARNING=false
@@ -35,9 +35,9 @@ echo
 echo -e "${GREEN}Step 2: Checking dotfiles status...${NC}"
 if $PATH_WARNING; then
     # Run directly if not in PATH
-    "$DOTFILES_SCRIPT" status
+    "$DOTFILES_CMD" status
 else
-    dotfiles status
+    "$DOTFILES_CMD" status
 fi
 
 echo
@@ -59,27 +59,27 @@ case $choice in
     1)
         echo -e "${BLUE}Running deployment preview...${NC}"
         if $PATH_WARNING; then
-            "$DOTFILES_SCRIPT" deploy --dry-run
+            "$DOTFILES_CMD" deploy --dry-run
         else
-            dotfiles deploy --dry-run
+            "$DOTFILES_CMD" deploy --dry-run
         fi
         echo
         read -p "Deploy for real? [y/N] " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             if $PATH_WARNING; then
-                "$DOTFILES_SCRIPT" deploy --force
+                "$DOTFILES_CMD" deploy --force
             else
-                dotfiles deploy --force
+                "$DOTFILES_CMD" deploy --force
             fi
         fi
         ;;
     2)
         echo -e "${BLUE}Deploying with backup...${NC}"
         if $PATH_WARNING; then
-            "$DOTFILES_SCRIPT" deploy --force
+            "$DOTFILES_CMD" deploy --force
         else
-            dotfiles deploy --force
+            "$DOTFILES_CMD" deploy --force
         fi
         ;;
     3)
@@ -106,7 +106,7 @@ fi
 
 echo "Next steps:"
 echo "  - Review deployed files with: dotfiles status"
-echo "  - See all commands with: dotfiles help"
+echo "  - See all commands with: dotfiles --help"
 echo "  - Add new configs with: dotfiles add <app> <path>"
 echo
 

@@ -22,3 +22,5 @@
 
 # Claude Code per-project scratch (repo root only; tracked config lives in claude/)
 /.claude/
+# Local dev checkout of the Rust CLI source (installed as a release binary, not a submodule)
+/dotfiles-tui/
