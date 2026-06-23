@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# waydesk — one-shot remote Wayland desktop over waypipe + ssh, detached.
+# waydesk — remote Wayland desktop over waypipe + ssh, detached and tracked.
 #
 # Brings up a remote desktop session (a nested compositor shipped through
 # waypipe) and forks it into its own session, so your terminal is freed and the
@@ -7,33 +7,138 @@
 # no relay, no STUN. Reciprocal by nature: any box can reach any other
 # (north <-> slab <-> cube).
 #
-# Usage:
-#   waydesk [user@]host [-- remote-command ...]
+# Sessions are tracked on BOTH ends so they can be listed and torn down cleanly,
+# and so a second launch to the same host doesn't silently stack another copy
+# (each nested desktop fights the others for keyboard focus locally):
 #
-#     host            a bare host assumes the local $USER
-#     -- cmd ...      override the remote session command
-#                     (default: dbus-run-session startplasma-wayland)
+#   waydesk [user@]host [-- remote-command ...]   launch (default: Plasma)
+#   waydesk list                                  list running sessions
+#   waydesk stop <host|--all>                     tear a session down cleanly
+#
+# Tracking: the local waypipe+ssh runs in its own process group (setsid), and
+# the remote desktop is wrapped so it records its OWN process-group id into a
+# per-session runfile on the target. `stop` kills the local group AND ssh's in
+# to kill exactly that remote group — so it tears down the nested desktop we
+# launched, and never a physical seat0 session on that machine. Dead sessions
+# are garbage-collected on every invocation.
 #
 # Examples:
 #   waydesk slab                  # Plasma on slab, as $USER
 #   waydesk bockeliea@slab        # Plasma on slab, explicit remote user
 #   waydesk north -- sway         # sway instead of Plasma
+#   waydesk list                  # what's running
+#   waydesk stop slab             # tear it down  (waydesk stop --all for every one)
 #
 # Tunables (env):
 #   WAYDESK_WAYPIPE_OPTS   waypipe flags (default: --compress=lz4)
 
 set -euo pipefail
+shopt -s nullglob
+
+rundir="${XDG_CACHE_HOME:-$HOME/.cache}/waydesk"
 
 usage() {
   cat >&2 <<'EOF'
-usage: waydesk [user@]host [-- remote-command ...]
-       bare host assumes local $USER; default session is Plasma (Wayland)
+usage: waydesk [user@]host [-- remote-command ...]   launch (default: Plasma)
+       waydesk list                                  list running sessions
+       waydesk stop <host|--all>                     tear a session down
 EOF
   exit "${1:-0}"
 }
 
+# --- session bookkeeping ----------------------------------------------------
+# Each local runfile is "<host>.pid" holding one line:  <local_pgid> <sid> <target>
+#   local_pgid  process group of the local waypipe+ssh (setsid leader)
+#   sid         session id; names the runfile the remote desktop writes its pgid into
+#   target      user@host, for the teardown ssh
+
+pidfile() { printf '%s/%s.pid' "$rundir" "$1"; }
+
+# True if the recorded local session is running AND is still our waypipe — the
+# cmdline check guards against a recycled PID passing as live (which would let
+# `stop` group-kill an unrelated process and dedup refuse falsely).
+alive() {  # host
+  local pf pid; pf="$(pidfile "$1")"
+  [[ -f "$pf" ]] || return 1
+  read -r pid _ < "$pf" 2>/dev/null || return 1
+  [[ -n "${pid:-}" ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  grep -qa waypipe "/proc/$pid/cmdline" 2>/dev/null
+}
+
+# Drop runfiles whose local process is gone — garbage-collect dead sessions.
+gc() {
+  local pf
+  for pf in "$rundir"/*.pid; do
+    alive "$(basename "$pf" .pid)" || rm -f "$pf"
+  done
+}
+
+cmd_list() {
+  gc
+  local pf host pid sid tgt et found=0
+  for pf in "$rundir"/*.pid; do
+    host="$(basename "$pf" .pid)"; read -r pid sid tgt < "$pf" 2>/dev/null || continue
+    et="$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ')"
+    [[ "$found" == 0 ]] && printf '%-16s %-8s %-10s %s\n' HOST PID UPTIME TARGET
+    printf '%-16s %-8s %-10s %s\n' "$host" "$pid" "${et:-?}" "${tgt:-?}"
+    found=1
+  done
+  [[ "$found" == 1 ]] || echo "waydesk: no active sessions"
+}
+
+# Kill the remote desktop we launched, by the pgid it recorded — only that one.
+reap_remote() {  # target sid
+  local tgt="$1" sid="$2" rk
+  [[ -n "$tgt" && -n "$sid" ]] || return 0
+  # Runs under the remote login shell; POSIX, evaluated remotely. `sid` is baked
+  # in; $HOME/$f/$p are remote. Negative pid = the whole nested-desktop group.
+  rk='f="$HOME/.cache/waydesk/'"$sid"'.pgid"; if [ -f "$f" ]; then IFS= read -r p < "$f"; kill -- "-$p" 2>/dev/null && echo "  remote desktop ended (pgid $p)"; rm -f "$f"; else echo "  no remote runfile (already gone)"; fi'
+  if ! ssh -o BatchMode=yes -o ConnectTimeout=10 \
+          -o ServerAliveInterval=5 -o ServerAliveCountMax=3 "$tgt" "$rk"; then
+    echo "waydesk: warning: couldn't reach $tgt — nested desktop may still run there" >&2
+  fi
+}
+
+stop_host() {  # host
+  local pf pid sid tgt; pf="$(pidfile "$1")"
+  if [[ ! -f "$pf" ]]; then echo "waydesk: no session for $1" >&2; return 1; fi
+  read -r pid sid tgt < "$pf" 2>/dev/null || true
+  # local: kill the whole group so waypipe and its ssh go down together — but
+  # only while the PID is still our waypipe, so a recycled PID is never group-killed
+  if [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null \
+       && grep -qa waypipe "/proc/$pid/cmdline" 2>/dev/null; then
+    kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null
+    echo "waydesk: stopped $1 local tunnel (pgid $pid)"
+  else
+    echo "waydesk: $1 local tunnel was not running"
+  fi
+  reap_remote "${tgt:-}" "${sid:-}" || true   # best-effort; never block local cleanup
+  rm -f "$pf"
+}
+
+cmd_stop() {
+  [[ $# -ge 1 ]] || { echo "waydesk: stop needs a host or --all" >&2; exit 1; }
+  if [[ "$1" == "--all" ]]; then
+    local pf
+    for pf in "$rundir"/*.pid; do stop_host "$(basename "$pf" .pid)" || true; done
+    return 0
+  fi
+  stop_host "${1#*@}"   # accept user@host too
+}
+
+# --- dispatch ---------------------------------------------------------------
+
+mkdir -p "$rundir"
+
 [[ $# -ge 1 ]] || usage 1
-case "$1" in -h|--help|help) usage 0 ;; esac
+case "$1" in
+  -h|--help|help) usage 0 ;;
+  list|ls)        cmd_list; exit 0 ;;
+  stop|kill)      shift; cmd_stop "$@"; exit 0 ;;
+esac
+
+# --- launch -----------------------------------------------------------------
 
 target="$1"; shift
 [[ "$target" == *@* ]] || target="$USER@$target"
@@ -48,20 +153,61 @@ else
   remote_cmd=( dbus-run-session startplasma-wayland )
 fi
 
+# garbage-collect dead sessions, then refuse to stack a second one on this host
+gc
+if alive "$host"; then
+  read -r existing _ < "$(pidfile "$host")" 2>/dev/null || true
+  echo "waydesk: a session to $host is already running (pid $existing)." >&2
+  echo "         stop it first:  waydesk stop $host" >&2
+  exit 1
+fi
+
 # we display into the LOCAL compositor — it must exist
 [[ -n "${WAYLAND_DISPLAY:-}" ]] || {
   echo "waydesk: no WAYLAND_DISPLAY — run from inside your local Wayland session" >&2
   exit 1
 }
-command -v waypipe >/dev/null || { echo "waydesk: waypipe not installed locally" >&2; exit 1; }
+
+# preflight: every local tool waydesk drives must be present. Report all the
+# missing ones at once, each with the package that provides it.
+missing=()
+for need in "waypipe:waypipe" "ssh:openssh" "setsid:util-linux"; do
+  cmd="${need%%:*}"; pkg="${need##*:}"
+  command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd (install: $pkg)")
+done
+if (( ${#missing[@]} )); then
+  echo "waydesk: missing required local tool(s):" >&2
+  printf '  - %s\n' "${missing[@]}" >&2
+  exit 1
+fi
 
 read -r -a wp_opts <<< "${WAYDESK_WAYPIPE_OPTS:---compress=lz4}"
 
-logdir="${XDG_CACHE_HOME:-$HOME/.cache}/waydesk"
-mkdir -p "$logdir"
-log="$logdir/$host.log"
+# session id names the remote runfile; uniqueness across source hosts + launches
+lhost="${HOSTNAME:-$(uname -n 2>/dev/null || echo host)}"; lhost="${lhost%%.*}"
+sid="${lhost}-$(date +%s)-$RANDOM"
 
+# Remote side, as ONE shell line — the target's login shell parses it (waypipe
+# does NOT exec it as clean argv, so a nested `sh -c '…'` would get its quoting
+# stripped). Start the desktop under its own session, record its process-group
+# id, then `wait` so the tunnel stays up until the desktop exits (tidying the
+# runfile when it does). The remote shell is non-interactive (no job control),
+# so `setsid CMD &` does not fork — $! IS the new session leader, and a session
+# leader's pgid equals its pid, so $! is exactly the group `stop` will kill.
+# `sid` and the command are baked in locally; $HOME and $! evaluate on the target.
+rpf="\$HOME/.cache/waydesk/${sid}.pgid"
+remote_str="mkdir -p \"\$HOME/.cache/waydesk\"; setsid ${remote_cmd[*]} & echo \$! > \"$rpf\"; wait; rm -f \"$rpf\""
+
+log="$rundir/$host.log"
 echo "waydesk → $target : ${remote_cmd[*]}"
 echo "          log: $log"
-setsid -f waypipe "${wp_opts[@]}" ssh "$target" "${remote_cmd[@]}" >"$log" 2>&1
-echo "launched (detached) — closing this terminal won't kill it."
+
+# Own session/process group (setsid, no -f so the leader PID is the one we keep)
+# for the local waypipe+ssh; record pgid + sid + target so `stop` tears down
+# both ends.
+setsid waypipe "${wp_opts[@]}" ssh "$target" "$remote_str" >"$log" 2>&1 </dev/null &
+pid=$!
+printf '%s %s %s\n' "$pid" "$sid" "$target" > "$(pidfile "$host")"
+
+echo "launched (detached, pid $pid) — closing this terminal won't kill it."
+echo "stop with:  waydesk stop $host   ·   list:  waydesk list"
