@@ -11,9 +11,22 @@
 # and so a second launch to the same host doesn't silently stack another copy
 # (each nested desktop fights the others for keyboard focus locally):
 #
-#   waydesk [user@]host [-- remote-command ...]   launch (default: Plasma)
+#   waydesk [user@]host [-d NAME] [-- remote-command ...]   launch a desktop
 #   waydesk list                                  list running sessions
 #   waydesk stop <host|--all>                     tear a session down cleanly
+#   waydesk desktops                              list the built-in desktop presets
+#
+# Desktops are named presets (-d NAME): plasma, sway, labwc, lxqt. Each preset
+# bakes in the remote launch command, the env a NESTED compositor needs to render
+# in software (no GPU under it), and a sane default for waypipe. The minimal
+# wlroots compositors (sway/labwc/lxqt) are software-rendered, so their preset
+# defaults waypipe to --no-gpu — which is both correct (nothing to forward) and
+# the thing that stops waypipe segfaulting on a host's dmabuf/NVIDIA path. Plasma
+# is a full DE: it works, but it's heavy and brings its own service swarm; the
+# minimal compositors are the well-behaved choice over waypipe.
+#
+# `-- cmd` still overrides everything: it runs your command verbatim, no preset
+# env, for anything the presets don't cover.
 #
 # Tracking: the local waypipe+ssh runs in its own process group (setsid), and
 # the remote desktop is wrapped so it records its OWN process-group id into a
@@ -23,14 +36,20 @@
 # are garbage-collected on every invocation.
 #
 # Examples:
-#   waydesk slab                  # Plasma on slab, as $USER
-#   waydesk bockeliea@slab        # Plasma on slab, explicit remote user
-#   waydesk north -- sway         # sway instead of Plasma
+#   waydesk slab                  # default desktop on slab, as $USER
+#   waydesk bockeliea@slab        # default desktop on slab, explicit remote user
+#   waydesk cube -d labwc         # labwc (recommended minimal desktop) on cube
+#   waydesk cube -d lxqt          # LXQt desktop (on labwc) on cube
+#   waydesk north -d sway         # sway tiling compositor on north
+#   waydesk north -- foot         # run an arbitrary command, no preset
 #   waydesk list                  # what's running
 #   waydesk stop slab             # tear it down  (waydesk stop --all for every one)
 #
 # Tunables (env):
-#   WAYDESK_WAYPIPE_OPTS   waypipe flags (default: --compress=lz4)
+#   WAYDESK_DESKTOP        default preset when -d is omitted (default: plasma)
+#   WAYDESK_WAYPIPE_OPTS   waypipe flags; overrides the preset's default entirely
+#                          (preset default: --compress=lz4, plus --no-gpu for the
+#                          software-rendered wlroots presets)
 
 set -euo pipefail
 shopt -s nullglob
@@ -39,11 +58,58 @@ rundir="${XDG_CACHE_HOME:-$HOME/.cache}/waydesk"
 
 usage() {
   cat >&2 <<'EOF'
-usage: waydesk [user@]host [-- remote-command ...]   launch (default: Plasma)
+usage: waydesk [user@]host [-d NAME] [-- remote-command ...]   launch a desktop
        waydesk list                                  list running sessions
        waydesk stop <host|--all>                     tear a session down
+       waydesk desktops                              list desktop presets (-d NAME)
 EOF
   exit "${1:-0}"
+}
+
+# --- desktop presets --------------------------------------------------------
+# A preset names everything a NESTED compositor needs over waypipe: the remote
+# launch command, the probe binary preflight checks for, the env that forces
+# software (pixman) rendering — wlroots compositors otherwise try the GPU under
+# them, which has nothing to render into here — and whether it's software-rendered
+# (those default waypipe to --no-gpu). Resolving a preset sets the preset_* vars.
+#
+# WLR_RENDERER=pixman + WLR_NO_HARDWARE_CURSORS=1 is the exact pair proven stable
+# for nested wlroots over `waypipe --no-gpu` on these hosts.
+desktop_preset() {  # name -> preset_cmd / preset_probe / preset_env / preset_soft
+  local soft_env='WLR_RENDERER=pixman WLR_NO_HARDWARE_CURSORS=1'
+  case "$1" in
+    plasma|kde)
+      preset_cmd='dbus-run-session startplasma-wayland'
+      preset_probe='startplasma-wayland'; preset_env=''; preset_soft=0 ;;
+    sway)
+      preset_cmd='sway'
+      preset_probe='sway'; preset_env="$soft_env"; preset_soft=1 ;;
+    labwc)
+      preset_cmd='labwc'
+      preset_probe='labwc'; preset_env="$soft_env"; preset_soft=1 ;;
+    lxqt)
+      # startlxqtwayland reads ~/.config/lxqt/session.conf for compositor=labwc
+      # (one-time setup on the target); the soft_env propagates into that labwc.
+      preset_cmd='startlxqtwayland'
+      preset_probe='startlxqtwayland'; preset_env="$soft_env"; preset_soft=1 ;;
+    *) return 1 ;;
+  esac
+}
+
+cmd_desktops() {
+  cat <<'EOF'
+waydesk desktop presets   (waydesk HOST -d NAME)
+
+  NAME     KIND                                   REMOTE COMMAND
+  plasma   KDE Plasma — full DE, heavy            dbus-run-session startplasma-wayland
+  sway     wlroots, tiling — rock-stable here     sway
+  labwc    wlroots, stacking — recommended        labwc
+  lxqt     LXQt desktop on labwc                   startlxqtwayland
+
+sway/labwc/lxqt are software-rendered (pixman) and default waypipe to --no-gpu.
+plasma is the default when -d is omitted; set WAYDESK_DESKTOP to change that.
+Override the remote command entirely (no preset) with:  waydesk HOST -- your-command
+EOF
 }
 
 # --- session bookkeeping ----------------------------------------------------
@@ -139,21 +205,47 @@ case "$1" in
   -h|--help|help) usage 0 ;;
   list|ls)        cmd_list; exit 0 ;;
   stop|kill)      shift; cmd_stop "$@"; exit 0 ;;
+  desktops)       cmd_desktops; exit 0 ;;
 esac
 
 # --- launch -----------------------------------------------------------------
 
-target="$1"; shift
+# Parse the launch line: the host (first positional), an optional -d NAME, and an
+# optional `-- cmd...` passthrough. `--` ends option parsing and overrides the
+# preset entirely.
+target=""; desktop=""; remote_cmd=(); explicit=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -d|--desktop) [[ -n "${2:-}" ]] || { echo "waydesk: -d needs a desktop name" >&2; exit 1; }
+                  desktop="$2"; shift 2 ;;
+    --)           shift; remote_cmd=( "$@" ); explicit=1; break ;;
+    -h|--help)    usage 0 ;;
+    -*)           echo "waydesk: unknown option: $1" >&2; usage 1 ;;
+    *)            if [[ -z "$target" ]]; then target="$1"; shift
+                  else echo "waydesk: unexpected argument: $1" >&2; usage 1; fi ;;
+  esac
+done
+[[ -n "$target" ]] || usage 1
 [[ "$target" == *@* ]] || target="$USER@$target"
 host="${target#*@}"
 
-# remote session command: everything after `--`, else a default Plasma session
-if [[ "${1:-}" == "--" ]]; then
-  shift
-  [[ $# -ge 1 ]] || { echo "waydesk: no command given after --" >&2; exit 1; }
-  remote_cmd=( "$@" )
+# Resolve the remote command. An explicit `-- cmd` wins and runs verbatim — no
+# preset env, no probe. Otherwise use the named preset (or WAYDESK_DESKTOP, or
+# plasma) and prepend its software-render env.
+preset_probe=""; preset_soft=0
+if (( explicit )); then
+  [[ ${#remote_cmd[@]} -ge 1 ]] || { echo "waydesk: no command given after --" >&2; exit 1; }
 else
-  remote_cmd=( dbus-run-session startplasma-wayland )
+  desktop="${desktop:-${WAYDESK_DESKTOP:-plasma}}"
+  if ! desktop_preset "$desktop"; then
+    echo "waydesk: unknown desktop '$desktop' — try: waydesk desktops" >&2
+    exit 1
+  fi
+  # word-splitting is intentional: preset_env is "VAR=v VAR=v", preset_cmd may be
+  # multiple words (e.g. dbus-run-session startplasma-wayland).
+  # shellcheck disable=SC2206
+  if [[ -n "$preset_env" ]]; then remote_cmd=( env $preset_env $preset_cmd )
+  else remote_cmd=( $preset_cmd ); fi
 fi
 
 # garbage-collect dead sessions, then refuse to stack a second one on this host
@@ -184,7 +276,16 @@ if (( ${#missing[@]} )); then
   exit 1
 fi
 
-read -r -a wp_opts <<< "${WAYDESK_WAYPIPE_OPTS:---compress=lz4}"
+# waypipe opts: an explicit WAYDESK_WAYPIPE_OPTS overrides everything. Otherwise
+# start from --compress=lz4 and, for a software-rendered preset, add --no-gpu —
+# there's nothing under a pixman compositor to forward, and forwarding it is the
+# path that segfaults waypipe on quirky dmabuf/NVIDIA hosts.
+if [[ -n "${WAYDESK_WAYPIPE_OPTS:-}" ]]; then
+  read -r -a wp_opts <<< "$WAYDESK_WAYPIPE_OPTS"
+else
+  wp_opts=( --compress=lz4 )
+  (( preset_soft )) && wp_opts+=( --no-gpu )
+fi
 
 # session id names the remote runfile; uniqueness across source hosts + launches
 lhost="${HOSTNAME:-$(uname -n 2>/dev/null || echo host)}"; lhost="${lhost%%.*}"
@@ -203,11 +304,16 @@ sid="${lhost}-$(date +%s)-$RANDOM"
 # exactly the group `stop` kills. `sid`/command bake in locally; $HOME/$!/$p
 # evaluate on the target.
 rpf="\$HOME/.cache/waydesk/${sid}.pgid"
-script="mkdir -p \"\$HOME/.cache/waydesk\"; setsid ${remote_cmd[*]} & p=\$!; echo \$p > \"$rpf\"; wait \$p; rm -f \"$rpf\""
+# For a preset, preflight the desktop binary on the target so a missing one is a
+# clear line in the log instead of a silent black screen. (No probe for `-- cmd`.)
+probe=""
+[[ -n "$preset_probe" ]] && probe="command -v $(shquote "$preset_probe") >/dev/null 2>&1 || { echo \"waydesk: $preset_probe not found on $host\" >&2; exit 127; }; "
+script="mkdir -p \"\$HOME/.cache/waydesk\"; ${probe}setsid ${remote_cmd[*]} & p=\$!; echo \$p > \"$rpf\"; wait \$p; rm -f \"$rpf\""
 remote_str="sh -c $(shquote "$script")"
 
 log="$rundir/$host.log"
-echo "waydesk → $target : ${remote_cmd[*]}"
+echo "waydesk → $target : ${explicit:+(custom) }${desktop:+[$desktop] }${remote_cmd[*]}"
+echo "          waypipe: ${wp_opts[*]}"
 echo "          log: $log"
 
 # Own session/process group (setsid, no -f so the leader PID is the one we keep)
