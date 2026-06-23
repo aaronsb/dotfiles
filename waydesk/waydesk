@@ -54,6 +54,9 @@ EOF
 
 pidfile() { printf '%s/%s.pid' "$rundir" "$1"; }
 
+# POSIX single-quote a string so it survives one round of remote-shell parsing.
+shquote() { local s=${1//\'/\'\\\'\'}; printf "'%s'" "$s"; }
+
 # True if the recorded local session is running AND is still our waypipe — the
 # cmdline check guards against a recycled PID passing as live (which would let
 # `stop` group-kill an unrelated process and dedup refuse falsely).
@@ -187,16 +190,21 @@ read -r -a wp_opts <<< "${WAYDESK_WAYPIPE_OPTS:---compress=lz4}"
 lhost="${HOSTNAME:-$(uname -n 2>/dev/null || echo host)}"; lhost="${lhost%%.*}"
 sid="${lhost}-$(date +%s)-$RANDOM"
 
-# Remote side, as ONE shell line — the target's login shell parses it (waypipe
-# does NOT exec it as clean argv, so a nested `sh -c '…'` would get its quoting
-# stripped). Start the desktop under its own session, record its process-group
-# id, then `wait` so the tunnel stays up until the desktop exits (tidying the
-# runfile when it does). The remote shell is non-interactive (no job control),
-# so `setsid CMD &` does not fork — $! IS the new session leader, and a session
-# leader's pgid equals its pid, so $! is exactly the group `stop` will kill.
-# `sid` and the command are baked in locally; $HOME and $! evaluate on the target.
+# The remote work must be waypipe's OWN forwarded command, so it ALL runs inside
+# one `sh -c '…'`. If we instead sent `mkdir …; setsid desktop & …`, the target's
+# ssh shell would parse the `;`/`&` and waypipe would wrap only the first word —
+# the desktop would then run OUTSIDE the forwarded display (it launches, but no
+# window appears). Single-quoting hands the whole script to that one sh, so the
+# desktop and everything it spawns inherit waypipe's WAYLAND_DISPLAY.
+#
+# Inside (run by the remote sh): start the desktop in its own session, record its
+# pgid, then wait. The shell is non-interactive (no job control), so `setsid CMD &`
+# does not fork — $! is the new session leader, whose pgid equals its pid, so it's
+# exactly the group `stop` kills. `sid`/command bake in locally; $HOME/$!/$p
+# evaluate on the target.
 rpf="\$HOME/.cache/waydesk/${sid}.pgid"
-remote_str="mkdir -p \"\$HOME/.cache/waydesk\"; setsid ${remote_cmd[*]} & echo \$! > \"$rpf\"; wait; rm -f \"$rpf\""
+script="mkdir -p \"\$HOME/.cache/waydesk\"; setsid ${remote_cmd[*]} & p=\$!; echo \$p > \"$rpf\"; wait \$p; rm -f \"$rpf\""
+remote_str="sh -c $(shquote "$script")"
 
 log="$rundir/$host.log"
 echo "waydesk → $target : ${remote_cmd[*]}"
