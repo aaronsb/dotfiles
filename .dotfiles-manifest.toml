@@ -105,31 +105,6 @@ spec.requires.groups   = ["video", "input"]
 spec.requires.entries  = ["mlterm-main", "mlterm-aafont", "mlterm-color"]
 
 [[entry]]
-name = "polkitctl"
-path = "polkit/polkitctl"
-target = ".local/bin/polkitctl"
-why = "Lifecycle for passive polkit fragments tracked in polkit/rules/: apply/remove/status/diff against /etc/polkit-1/rules.d. Fragments are inert until explicitly applied (sudo); never auto-deployed, single-host only — no per-host convergence, which is the deliberate line short of fleet management."
-spec.summary  = "Manual single-host lifecycle (status/apply/remove/diff) for inert polkit fragments in polkit/rules/; the only path to /etc, always sudo'd, never wired into deploy."
-spec.concern  = "system-policy"
-spec.platform = "linux"
-spec.tags     = ["polkit", "privilege", "single-host"]
-spec.provides = ["polkitctl"]
-spec.requires.packages = ["polkit"]
-
-[[entry]]
-name = "waydesk"
-path = "waydesk/waydesk"
-target = ".local/bin/waydesk"
-why = "Launcher and session manager for a remote Wayland desktop over waypipe+ssh: brings up a detached nested session on another host (north<->slab<->cube) without relay or STUN (LAN/VPN), and tracks it on both ends so list/stop tear the whole session down cleanly. Desktops are named presets (-d plasma|sway|labwc|lxqt): each carries the remote launch command, the env a nested compositor needs to render in software (pixman), and a waypipe default — the minimal wlroots compositors default to --no-gpu, the path that survives quirky dmabuf/NVIDIA hosts where forwarding a full GPU-backed Plasma session crashes waypipe."
-spec.summary  = "Detached, tracked remote Wayland desktop over waypipe+ssh with named desktop presets (plasma/sway/labwc/lxqt); list/stop manage sessions. LAN/VPN, no relay. Needs a live local Wayland session to display into."
-spec.concern  = "remote-desktop"
-spec.platform = "linux-wayland"
-spec.tags     = ["waypipe", "ssh", "plasma", "sway", "labwc", "lxqt"]
-spec.provides = ["waydesk"]
-spec.depends  = ["polkitctl"]
-spec.requires.packages = ["waypipe", "openssh", "util-linux"]
-
-[[entry]]
 name = "github-backup"
 path = "github-backup/github-backup"
 target = ".local/bin/github-backup"
