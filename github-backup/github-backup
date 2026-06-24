@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+#
+# github-backup — Mirror your entire GitHub profile to disk (and optionally a DVD).
+# Managed by `dotfiles`; deployed to ~/.local/bin/github-backup.
+#
+# For each selected repo it stores:
+#   - a complete `git clone --mirror` (every branch, tag, and ref — a true backup)
+#   - a <name>.meta.json with the GitHub-only data that does NOT live in git:
+#     description, topics, issues, pull requests, and releases.
+#
+# It writes a top-level MANIFEST.md and manifest.json recording WHEN the backup ran
+# and WHAT it contains, then can burn the whole tree to a blank DVD.
+#
+# Repo selection:
+#   - All repos you own are included.
+#   - Forks are included ONLY if pushed within --stale-days (default 90); older forks
+#     are skipped (they're recoverable from upstream).
+#
+# Usage:
+#   github-backup                       # backup aaronsb's profile to ~/github-backup/backups/<ts>
+#   github-backup --burn                # ...and burn the result to /dev/sr0
+#   github-backup --user someone        # back up a different account
+#   github-backup --stale-days 180      # keep forks pushed within 6 months
+#   github-backup --all-forks           # include every fork regardless of age
+#   github-backup --no-forks            # exclude all forks
+#   github-backup --no-metadata         # mirror git only, skip issues/PRs/releases
+#   github-backup --out /path/to/dir    # custom base directory
+#   github-backup --dev /dev/sr1        # burn to a different optical device
+#
+# Requires: gh (authenticated), git, jq. For --burn: xorriso.
+
+set -euo pipefail
+
+# ---------- defaults (override via flags or env) ----------
+GH_USER="${GH_USER:-aaronsb}"
+FORK_STALE_DAYS="${FORK_STALE_DAYS:-90}"
+BASE_DIR="${BASE_DIR:-$HOME/github-backup}"
+INCLUDE_METADATA="${INCLUDE_METADATA:-1}"
+FORK_MODE="${FORK_MODE:-stale}"   # stale | all | none
+BURN="${BURN:-0}"
+BURN_DEV="${BURN_DEV:-/dev/sr0}"
+
+# ---------- arg parsing ----------
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --user)        GH_USER="$2"; shift 2 ;;
+    --stale-days)  FORK_STALE_DAYS="$2"; shift 2 ;;
+    --out)         BASE_DIR="$2"; shift 2 ;;
+    --no-metadata) INCLUDE_METADATA=0; shift ;;
+    --all-forks)   FORK_MODE="all"; shift ;;
+    --no-forks)    FORK_MODE="none"; shift ;;
+    --burn)        BURN=1; shift ;;
+    --dev)         BURN_DEV="$2"; shift 2 ;;
+    -h|--help)     sed -n '2,40p' "$0"; exit 0 ;;
+    *) echo "unknown flag: $1" >&2; exit 2 ;;
+  esac
+done
+
+# ---------- preflight ----------
+for t in gh git jq; do command -v "$t" >/dev/null || { echo "missing tool: $t" >&2; exit 1; }; done
+gh auth status >/dev/null 2>&1 || { echo "gh not authenticated — run: gh auth login" >&2; exit 1; }
+[[ "$BURN" == 1 ]] && { command -v xorriso >/dev/null || { echo "missing xorriso (needed for --burn)" >&2; exit 1; }; }
+
+TS="$(date +%Y-%m-%d_%H%M%S)"
+RUN_DIR="$BASE_DIR/backups/$TS"
+REPOS_DIR="$RUN_DIR/repos"
+CUTOFF="$(date -d "$FORK_STALE_DAYS days ago" +%Y-%m-%d)"
+mkdir -p "$REPOS_DIR"
+LOG="$RUN_DIR/backup.log"
+exec > >(tee -a "$LOG") 2>&1
+
+echo "=============================================="
+echo " GitHub profile backup"
+echo "  user:        $GH_USER"
+echo "  started:     $(date -Iseconds)"
+echo "  destination: $RUN_DIR"
+echo "  fork mode:   $FORK_MODE (cutoff $CUTOFF, ${FORK_STALE_DAYS}d)"
+echo "  metadata:    $([[ $INCLUDE_METADATA == 1 ]] && echo yes || echo no)"
+echo "=============================================="
+
+# ---------- enumerate + select repos ----------
+echo "[*] Listing repositories for $GH_USER ..."
+ALL_JSON="$RUN_DIR/_all_repos.json"
+gh repo list "$GH_USER" --limit 1000 \
+  --json name,nameWithOwner,isFork,isArchived,isPrivate,diskUsage,pushedAt,description,defaultBranchRef,url \
+  > "$ALL_JSON"
+
+SEL_JSON="$RUN_DIR/_selected_repos.json"
+jq --arg c "$CUTOFF" --arg mode "$FORK_MODE" '
+  [ .[] | select(
+      (.isFork | not)
+      or ($mode == "all")
+      or ($mode == "stale" and (.pushedAt[0:10] >= $c))
+    )
+  ] | sort_by(.name)
+' "$ALL_JSON" > "$SEL_JSON"
+
+TOTAL=$(jq length "$ALL_JSON")
+COUNT=$(jq length "$SEL_JSON")
+echo "[*] Selected $COUNT of $TOTAL repos."
+
+# ---------- mirror helper ----------
+# Clone/update over HTTPS (authenticated by gh's credential helper), NOT ssh.
+# ssh to github can hang indefinitely on flaky networks; HTTPS + `timeout` + retries
+# guarantees no single repo can stall the whole run.
+CLONE_TIMEOUT="${CLONE_TIMEOUT:-180}"
+CLONE_RETRIES="${CLONE_RETRIES:-3}"
+GIT_CRED=(-c credential.https://github.com.helper= -c credential.https://github.com.helper='!gh auth git-credential')
+
+mirror_repo() {  # $1=nwo  $2=dest  -> 0 on success
+  local nwo="$1" dest="$2" attempt
+  for attempt in $(seq 1 "$CLONE_RETRIES"); do
+    if [[ -d "$dest" ]]; then
+      timeout "$CLONE_TIMEOUT" git "${GIT_CRED[@]}" --git-dir="$dest" \
+        remote update --prune >/dev/null 2>&1 && return 0
+    else
+      timeout "$CLONE_TIMEOUT" git "${GIT_CRED[@]}" clone --mirror --quiet \
+        "https://github.com/$nwo.git" "$dest" >/dev/null 2>&1 && return 0
+      rm -rf "$dest"   # discard partial mirror before retrying
+    fi
+    [[ $attempt -lt $CLONE_RETRIES ]] && { echo "    … retry $((attempt+1))/$CLONE_RETRIES"; sleep $((attempt*3)); }
+  done
+  return 1
+}
+
+# ---------- backup loop ----------
+i=0; ok=0; fail=0
+declare -a FAILED=()
+while IFS=$'\t' read -r name nwo isFork isPrivate; do
+  i=$((i+1))
+  printf '[%3d/%3d] %s%s%s\n' "$i" "$COUNT" "$nwo" \
+    "$([[ $isFork == true ]] && echo ' (fork)')" \
+    "$([[ $isPrivate == true ]] && echo ' (private)')"
+
+  dest="$REPOS_DIR/$name.git"
+  if mirror_repo "$nwo" "$dest"; then
+    ok=$((ok+1))
+  else
+    echo "    ! mirror failed after $CLONE_RETRIES attempts"; fail=$((fail+1)); FAILED+=("$nwo"); continue
+  fi
+
+  # ---- GitHub-only metadata (issues / PRs / releases / repo facts) ----
+  if [[ "$INCLUDE_METADATA" == 1 ]]; then
+    meta="$REPOS_DIR/$name.meta.json"
+    # Stream metadata through FILES, not argv. Issue/PR bodies can be large; passing
+    # them via `jq --argjson` overflows ARG_MAX on big repos. --slurpfile has no limit.
+    tmp="$REPOS_DIR/.$name.meta.d"; mkdir -p "$tmp"
+    jq --arg n "$name" '[.[] | select(.name == $n)][0]' "$ALL_JSON" > "$tmp/repo.json"
+    timeout 120 gh issue list -R "$nwo" --state all --limit 1000 \
+      --json number,title,state,createdAt,closedAt,author,labels,body > "$tmp/issues.json" 2>/dev/null \
+      || echo '[]' > "$tmp/issues.json"
+    timeout 120 gh pr list -R "$nwo" --state all --limit 1000 \
+      --json number,title,state,createdAt,closedAt,mergedAt,author,labels,body > "$tmp/prs.json" 2>/dev/null \
+      || echo '[]' > "$tmp/prs.json"
+    # Release NOTES only — never the binary assets (those can be huge). We keep a
+    # lightweight record of each release plus asset names/sizes for inventory.
+    timeout 120 gh api "repos/$nwo/releases" --paginate 2>/dev/null \
+      | jq -s 'add // []
+          | map({tag_name, name, published_at, draft, prerelease, body,
+                 assets: (.assets // [] | map({name, size, content_type}))})' \
+        > "$tmp/releases.json" 2>/dev/null || echo '[]' > "$tmp/releases.json"
+    # Guarantee every file holds valid JSON before the merge.
+    for f in repo issues prs releases; do
+      jq -e . "$tmp/$f.json" >/dev/null 2>&1 || echo '[]' > "$tmp/$f.json"
+    done
+    jq -n \
+      --slurpfile repo     "$tmp/repo.json" \
+      --slurpfile issues   "$tmp/issues.json" \
+      --slurpfile prs      "$tmp/prs.json" \
+      --slurpfile releases "$tmp/releases.json" \
+      '{repo:($repo[0] // null),
+        issues:($issues[0] // []),
+        pull_requests:($prs[0] // []),
+        releases:($releases[0] // []),
+        counts:{issues:(($issues[0]//[])|length),
+                pull_requests:(($prs[0]//[])|length),
+                releases:(($releases[0]//[])|length)}}' \
+      > "$meta"
+    rm -rf "$tmp"
+  fi
+done < <(jq -r '.[] | [.name, .nameWithOwner, (.isFork|tostring), (.isPrivate|tostring)] | @tsv' "$SEL_JSON")
+
+# ---------- manifest ----------
+echo "[*] Writing manifest ..."
+BYTES=$(du -sb "$REPOS_DIR" | cut -f1)
+HUMAN=$(du -sh "$REPOS_DIR" | cut -f1)
+
+# machine-readable manifest
+jq -n \
+  --arg user "$GH_USER" --arg ts "$(date -Iseconds)" --arg host "$(hostname)" \
+  --arg cutoff "$CUTOFF" --arg forkmode "$FORK_MODE" \
+  --argjson total "$TOTAL" --argjson selected "$COUNT" \
+  --argjson ok "$ok" --argjson fail "$fail" --argjson bytes "$BYTES" \
+  --slurpfile repos "$SEL_JSON" \
+  '{generated_by:"github-backup.sh", user:$user, created:$ts, host:$host,
+    fork_policy:{mode:$forkmode, stale_cutoff:$cutoff},
+    totals:{repos_total:$total, repos_backed_up:$selected, succeeded:$ok, failed:$fail, bytes_on_disk:$bytes},
+    repos:$repos[0]}' > "$RUN_DIR/manifest.json"
+
+# human-readable MANIFEST.md
+{
+  echo "# GitHub Backup — $GH_USER"
+  echo
+  echo "**Created:** $(date -Iseconds)  "
+  echo "**Host:** $(hostname)  "
+  echo "**Tool:** \`github-backup.sh\`  "
+  echo "**Contents:** complete \`git --mirror\` of each repo (all branches/tags/refs)$([[ $INCLUDE_METADATA == 1 ]] && echo ' + issues/PRs/release-notes metadata (no binary release assets)')."
+  echo
+  echo "## Summary"
+  echo
+  echo "| Metric | Value |"
+  echo "|---|---|"
+  echo "| Repos backed up | $COUNT of $TOTAL |"
+  echo "| Succeeded / failed | $ok / $fail |"
+  echo "| Fork policy | $FORK_MODE (forks kept if pushed since $CUTOFF) |"
+  echo "| Size on disk | $HUMAN |"
+  echo
+  echo "## How to restore a repo"
+  echo
+  echo '```bash'
+  echo '# Push the mirror to a fresh empty GitHub repo:'
+  echo 'gh repo create <new-name> --private'
+  echo 'git -C repos/<name>.git push --mirror git@github.com:<you>/<new-name>.git'
+  echo '#'
+  echo '# Or just work from it locally:'
+  echo 'git clone repos/<name>.git <name> && cd <name>'
+  echo '```'
+  echo
+  echo "## Repositories"
+  echo
+  echo "| Repo | Visibility | Fork | Last push | Description |"
+  echo "|---|---|---|---|---|"
+  jq -r '.[] | "| \(.name) | \(if .isPrivate then "private" else "public" end) | \(if .isFork then "yes" else "no" end) | \(.pushedAt[0:10]) | \((.description // "") | gsub("[|\n]"; " ")) |"' "$SEL_JSON"
+} > "$RUN_DIR/MANIFEST.md"
+
+# refresh "latest" pointer
+ln -sfn "$RUN_DIR" "$BASE_DIR/latest"
+
+echo "=============================================="
+echo " DONE — $ok ok, $fail failed, $HUMAN"
+echo " Manifest: $RUN_DIR/MANIFEST.md"
+[[ $fail -gt 0 ]] && { echo " Failed repos:"; printf '   - %s\n' "${FAILED[@]}"; }
+echo "=============================================="
+
+# ---------- optional DVD burn ----------
+if [[ "$BURN" == 1 ]]; then
+  echo "[*] Preparing to burn $RUN_DIR to $BURN_DEV ..."
+  status=$(xorriso -outdev "$BURN_DEV" -toc 2>&1 | grep -m1 'Media status' || true)
+  echo "    $status"
+  if echo "$status" | grep -q 'is blank'; then
+    cap_mb=$((BYTES/1024/1024))
+    echo "    payload ~${cap_mb} MB"
+    if [[ $cap_mb -gt 4400 ]]; then
+      echo "    ! payload exceeds single-layer DVD capacity (~4400 MB). Skipping burn." >&2
+    else
+      label="GH_${GH_USER}_${TS}"; label="${label:0:32}"
+      echo "[*] Burning (volume id: $label) ..."
+      xorriso -as mkisofs -V "$label" -o "$RUN_DIR/../backup_$TS.iso" "$RUN_DIR" >/dev/null 2>&1
+      xorriso -as cdrecord -v dev="$BURN_DEV" -dao "$RUN_DIR/../backup_$TS.iso"
+      echo "[*] Burn complete. Verifying ..."
+      mp="$(mktemp -d)"
+      if sudo mount -o ro "$BURN_DEV" "$mp" 2>/dev/null; then
+        echo "    disc mounts OK; top-level:"; ls "$mp"/*/ 2>/dev/null | head
+        sudo umount "$mp"
+      fi
+      rmdir "$mp" 2>/dev/null || true
+      rm -f "$RUN_DIR/../backup_$TS.iso"
+    fi
+  else
+    echo "    ! media is not blank — load a blank disc to burn. Skipping." >&2
+  fi
+fi

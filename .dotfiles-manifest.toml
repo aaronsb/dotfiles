@@ -129,6 +129,12 @@ spec.provides = ["waydesk"]
 spec.depends  = ["polkitctl"]
 spec.requires.packages = ["waypipe", "openssh", "util-linux"]
 
+[[entry]]
+name = "github-backup"
+path = "github-backup/github-backup"
+target = ".local/bin/github-backup"
+why = "Disaster-recovery tool: mirror-backs up my entire GitHub profile (all repos as git --mirror, plus issues/PRs/release-notes metadata) to disk and optionally burns to DVD. Kept on every machine so any box can both produce and restore a full off-site backup; clones over HTTPS with timeout+retry so flaky ssh can't stall it."
+
 [profiles.north]
 
 [profiles.slab]
