@@ -3,6 +3,15 @@
 # These are normal (not global) aliases — safer than alias -g, which expands
 # the word anywhere on the command line including inside pipelines and flags.
 
+# Interactive conveniences only. Skip them for agent/automation shells (Claude Code
+# et al. set CLAUDECODE / AI_AGENT) and for any non-interactive shell: lsd/bat/
+# color-flag output and `cp -i` prompts break programmatic parsing and hang
+# automation. NB: agent tools source .zshrc in an interactive context, so the env
+# vars — not `-o interactive` — are what reliably catches them. Your terminal is
+# unaffected (no agent vars set, interactive → aliases load normally).
+[[ -n "$CLAUDECODE" || -n "$AI_AGENT" ]] && return
+[[ -o interactive ]] || return
+
 # Core sanity
 alias cp='cp -i'
 alias df='df -h'
