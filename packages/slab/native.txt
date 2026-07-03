@@ -71,8 +71,8 @@ eos-quickstart
 eos-rankmirrors
 eos-settings-plasma
 ethtool
-exfatprogs
 ex-vi-compat
+exfatprogs
 eza
 f2fs-tools
 fastfetch
@@ -93,9 +93,9 @@ gdb
 ghidra
 ghostscript
 git
+git-lfs
 github-cli
 gitleaks
-git-lfs
 glances
 glow
 go
@@ -105,9 +105,9 @@ grub-btrfs
 gsfonts
 gst-libav
 gst-plugin-pipewire
+gst-plugin-va
 gst-plugins-bad
 gst-plugins-ugly
-gst-plugin-va
 guestfs-tools
 gum
 gutenprint
@@ -129,9 +129,9 @@ jq
 kate
 kcalc
 kde-cli-tools
+kde-gtk-config
 kdeconnect
 kdegraphics-thumbnailers
-kde-gtk-config
 kdenetwork-filesharing
 kdeplasma-addons
 keychain
@@ -197,8 +197,8 @@ ntfs-3g
 ntp
 nvme-cli
 nvtop
-obsidian
 obs-studio
+obsidian
 okular
 openbsd-netcat
 openssh
@@ -250,11 +250,11 @@ reflector-simple
 rsync
 rtkit
 rustup
+s-nail
 screen
 sddm-kcm
 sg3_utils
 smartmontools
-s-nail
 sof-firmware
 spectacle
 spotify-launcher
@@ -296,7 +296,9 @@ uv
 virt-manager
 vlc
 vulkan-intel
+waypipe
 welcome
+weston
 wget
 which
 whois

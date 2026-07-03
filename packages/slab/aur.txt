@@ -12,6 +12,7 @@ mdcat
 mmaid
 mmm
 oh-my-posh
+qrc-bin
 slack-desktop-wayland
 splix
 thinkfan
