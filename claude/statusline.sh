@@ -1,0 +1,1 @@
+/home/aaron/.local/share/agent-ways/statusline.sh
