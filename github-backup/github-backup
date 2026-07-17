@@ -655,5 +655,14 @@ fi
 if [[ ${#ARTIFACTS[@]} -gt 0 ]]; then
   hr
   status "Artifacts:"
-  for a in "${ARTIFACTS[@]}"; do [[ -e "$a" ]] && printf '   %s %s\n' "${GREEN}${ICONS[ok]}${NC}" "$a"; done
+  # `|| continue` rather than `&& printf`: a missing artifact must skip a line,
+  # not become the loop's (failing) exit status.
+  for a in "${ARTIFACTS[@]}"; do
+    [[ -e "$a" ]] || continue
+    printf '   %s %s\n' "${GREEN}${ICONS[ok]}${NC}" "$a"
+  done
 fi
+
+# The run's outcome was already reported above (and set -e aborts on real errors),
+# so end on an explicit success rather than letting the last cosmetic test decide.
+exit 0
