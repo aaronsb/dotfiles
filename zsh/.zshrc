@@ -1,6 +1,8 @@
 # ~/.zshrc — loader. All config lives in ~/.zsh/conf.d/ and runs in filename order.
 #
-#   00-path          PATH and Go/Rust/npm bin dirs (typeset -U dedupes)
+# Interactive-only: zsh skips this file for non-interactive shells. Anything every
+# shell needs (PATH, GOPATH) belongs in ~/.zshenv instead — see the note there.
+#
 #   04-host          per-host overlay (sources ~/.zsh/host.d/$HOST/*)
 #   05-local-pre     sources ~/.zshrc.local (theme, SSH keys, machine extras)
 #   10-history       HISTFILE, HISTSIZE, HIST_* options

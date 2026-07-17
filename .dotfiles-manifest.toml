@@ -21,6 +21,16 @@ target = ".zshrc"
 why = "Interactive shell baseline (prompt, history, keybindings). The reason a fresh box behaves like the others without re-deriving settings."
 
 [[entry]]
+name = "zshenv"
+path = "zsh/.zshenv"
+target = ".zshenv"
+why = "PATH/GOPATH for EVERY zsh, not just interactive ones. .zshrc (and its conf.d) is interactive-only, so shells from `ssh host cmd`, cron, systemd, and agent tool runners never composed a PATH — they inherited one from whatever spawned them, which looked correct only while an interactive ancestor existed and broke as soon as one didn't. Composing here makes a correct PATH a property of the shell rather than of its ancestry."
+spec.summary  = "Base env (PATH, GOPATH) for all zsh invocations."
+spec.concern  = "shell-bootstrap"
+spec.kind     = "env-shell-hook"
+spec.run_mode = "side-effect-free"
+
+[[entry]]
 name = "nvim"
 path = "nvim"
 target = ".config/nvim"
