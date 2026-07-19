@@ -124,13 +124,7 @@ why = "Disaster-recovery tool: mirror-backs up my entire GitHub profile (all rep
 name = "claude-statusline"
 path = "claude/statusline.sh"
 target = ".claude/statusline.sh"
-why = "Status line renderer (dir, git branch, owner/repo, time). A file artifact, not a settings key: the agent-ways statusLine fragment only points at it. Owned in dotfiles so it travels across hosts; the fragment store owns the pointer (ADR-163 artifact-ownership split)."
-
-[[entry]]
-name = "claude-settings"
-path = "claude/agent-ways/settings"
-target = ".config/agent-ways/settings"
-why = "agent-ways settings.json fragment store (ADR-147): composable config keys projected into ~/.claude by 'ways settings project'. Carried here so config keys travel across hosts. The projector's host-local last-applied base lives in XDG_STATE and is deliberately not managed here (ADR-163)."
+why = "Status line renderer (dir, git branch, owner/repo, time). A file artifact, not a settings key: the claude/settings.d statusLine fragment points at it. Owned in dotfiles so it travels across hosts (ADR-010 / ADR-163 artifact-ownership split)."
 
 [profiles.north]
 
