@@ -10,7 +10,7 @@ This is a dotfiles repository for managing configuration files across machines. 
 
 - `dotfiles-tui/` - Rust CLI source (its own repo): `crates/` (cli + core) and `docs/architecture/` (ADRs)
 - `bootstrap.sh` - Initial setup script for new machines
-- `install.sh` - Installs the prebuilt `dotfiles` CLI into `~/.local/bin`
+- `install.sh` - Installs the pinned `dotfiles` CLI into `~/.local/bin` (`--latest` to move ahead of the pin)
 - `.dotfiles-cli.version` - Pinned CLI release for reproducible installs
 - `.dotfiles-manifest.toml` - The manifest: what's managed, why, and optional spec
 - `tmux/` - Tmux terminal multiplexer configuration
@@ -23,6 +23,22 @@ This is a dotfiles repository for managing configuration files across machines. 
 - `dotfiles add <app> <path>` - Add new config to management
 - `dotfiles enable/disable <app>` - Toggle specific configs
 - `dotfiles list` - Show all managed configs
+- `dotfiles pull` - Fast-forward the store, then self-update the CLI to `.dotfiles-cli.version`
+
+### Keeping the CLI in step with the store
+
+The store and the CLI version independently, so a store update can carry data
+whose meaning depends on a CLI capability (e.g. `claude/settings.d/` needs
+`dotfiles claude`). `.dotfiles-cli.version` is the authoritative statement of
+which CLI this store expects; `install.sh` installs it and `dotfiles pull`
+converges on it (dotfiles-cli ADR-200).
+
+To move the pin forward: cut a release in `dotfiles-tui/`, then
+`./install.sh --latest`, write the new version into `.dotfiles-cli.version`,
+and commit. Other machines pick it up on their next `pull`.
+
+A merged feature that is never tagged is invisible to the pin — releases are
+load-bearing here.
 
 Because managed configs deploy as symlinks, edits to the system file and
 the repo file are the same bytes. Use `git status` / `git diff` in this
